@@ -64,9 +64,9 @@ void main (int argc, char* argv[]) {
 		
 		printf ("\n");
 	    }      
+	    freopen("output.json","w",stdout);
 	    GML_print_list (list, 0);
-	    //printf ("Keys used in %s: \n", argv[1]);
-	    //print_keys (stat->key_list);
+	    fclose(stdout);
 	    GML_free_list (list, stat->key_list);
 	}
     }
