@@ -52,21 +52,21 @@ void create_edge(json j_obj)
 	jedge.erase(jedge.find("source"));
 	jedge.erase(jedge.find("target"));
 	if(jedge.size() == 0)
-		if(is_directed())
-			edges[source][target] = 1;
-		else
+	{	
+		edges[source][target] = 1;
+		if(!is_directed())
 		{
-			edges[source][target] = 1;
 			edges[target][source] = 1;
 		}
+	}
 	else
-		if(is_directed())
-			edges[source][target] = jedge["value"];
-		else
+	{
+		edges[source][target] = jedge["value"];
+		if(!is_directed())
 		{
-			edges[source][target] = jedge["value"];
 			edges[target][source] = jedge["value"];
-		}	 
+		}
+	}	 
 
 }
 
