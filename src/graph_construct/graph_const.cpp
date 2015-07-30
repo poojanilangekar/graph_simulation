@@ -47,7 +47,7 @@ void sssp(int source) //Calculate the Shortest Path using BFS.
 
 }
 
-int main(int argc, char** argv)
+int main(int argc, char* argv[])
 {
 	time_t start = time(0);
 	//Read the input file given an argument.
@@ -56,8 +56,8 @@ int main(int argc, char** argv)
 		cout<<"Usage: "<<argv[0]<<" <filename>";
 		return 1;
 	}
-	//string filename = argv[1];
-	ifstream data_file(argv[1]);
+	string filename = argv[1];
+	ifstream data_file(filename);
 	if(!data_file.is_open()) 
 	{
 		cout<<argv[1]<<" could not be opened!";
@@ -88,6 +88,16 @@ int main(int argc, char** argv)
 	//Join all threads. (Ensure all the tasks are complete.
 	delete pool;
 	//Calculate the rutime of the program
+	string outputfile = filename + "_dmat.txt";
+	ofstream dmatfile(outputfile);
+	for(map<int, map<int, int>>::iterator sit = distmat.begin(); sit != distmat.end(); ++sit)
+	{
+		int snode = sit->first;
+		for(map<int, int>::iterator dit = sit->second.begin(); dit != sit->second.end();++dit)
+			dmatfile<<snode<<" "<<dit->first<<" "<<dit->second<<"\n";
+	}
+
+	dmatfile.close();
 	cout<<"Time: "<<difftime(time(0),start);
 	exit(0);
 }

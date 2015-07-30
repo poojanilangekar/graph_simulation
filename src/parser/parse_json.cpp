@@ -14,7 +14,6 @@ bool DIRECTED;
 json nodes;
 map<size_t, map<size_t, float> > edges;
 
-
 void set_directed(json j_obj)
 {
 	//Set whether directed or undirected
@@ -52,7 +51,7 @@ void create_edge(json j_obj)
 	jedge.erase(jedge.find("source"));
 	jedge.erase(jedge.find("target"));
 	if(jedge.size() == 0)
-	{	
+	{
 		edges[source][target] = 1;
 		if(!is_directed())
 		{
@@ -96,9 +95,10 @@ void json_iterate_graph(json jgraph)
 	}
 }
 
-int main(int argc , char* argv[])
+int main(int argc ,char * argv[])
 {
-    	ifstream j(argv[1]);
+    	string inputfile(argv[1]);
+	ifstream j(inputfile);
     	stringstream jss;
     	jss << j.rdbuf();
     	json j_file = json::parse(jss);
@@ -115,5 +115,17 @@ int main(int argc , char* argv[])
 		cout<<"GRAPH is undirected!\n";
 	cout<<"Number of nodes: "<<nodes.size();
 	cout<<"Number of edges: "<<edges.size();
+	ofstream efile(inputfile+"_edge.txt");
+	for(map< size_t, map< size_t, float > >::iterator it = edges.begin(); it != edges.end(); ++it)
+	{
+		size_t source = it -> first;
+		for(map< size_t, float>::iterator dit = (it->second).begin(); dit != (it->second).end(); ++dit)
+			efile<<source<<" "<<dit->first<<"\n";
+	}
+	efile.close();
+	ofstream nfile(inputfile+"_node.json");
+	nfile<<nodes.dump(3);
+	nfile.close();
+	
 }
 
