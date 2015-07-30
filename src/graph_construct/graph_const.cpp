@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <thread>
 #include <mutex>
-
+#include <ThreadPool.hpp>
 
 using namespace std;
 
@@ -44,7 +44,6 @@ void sssp(int source) //Calculate the Shortest Path using BFS.
 			}	
 		}
 	}
-	cout<<source<<"\n";
 
 }
 
@@ -79,21 +78,15 @@ int main(int argc, char** argv)
 	}
 	data_file.close();
 	//Construct the distance Matrix by filling in the single source shortest path (sssp) for each source node.
-	vector <thread> mythreads; 
 	int max_threads = thread::hardware_concurrency();
+	ThreadPool *pool = new ThreadPool(max_threads); //ThreadPool to enqueue the tasks to a set of 'max_threads'.
 	for(map<int, vector<int> >::const_iterator it = adjlist.begin(); it!= adjlist.end(); ++it)
 	{
-			mythreads.push_back(thread(sssp,it->first)); //Create a thread to call the sssp function for each vertex
-			if(mythreads.size() > max_threads) //Join thread to avoid resource temporarily unavailable exception.
-			{ 
-				mythreads.begin()->join();
-				mythreads.erase(mythreads.begin());
-			}	
+			pool->enqueue(sssp,it->first); //Create a task to call the sssp function for each vertex	
 
 	}
-	//Join all remaining threads.
-	for(vector<thread>::iterator vi = mythreads.begin(); vi != mythreads.end(); ++vi)
-		vi->join();
+	//Join all threads. (Ensure all the tasks are complete.
+	delete pool;
 	//Calculate the rutime of the program
 	cout<<"Time: "<<difftime(time(0),start);
 	exit(0);

@@ -1,22 +1,13 @@
 /* This software is distributed under the Lesser General Public License */
 /*
- * Demo for the GML_parser. Usage: gml_demo <gml_file>
- * Simply prints the list of Key-Value pairs to stdout
+ * Parse the input file and print the output to a json file. 
  */
 
 #include "gml_parser.h"
 #include <stdio.h>
 #include <stdlib.h>
 
-void print_keys (struct GML_list_elem* list) {
-    
-    while (list) {
-	printf ("%s\n", list->key);
-	list = list->next;
-    }
-}
-
-void main (int argc, char* argv[]) {
+int main (int argc, char* argv[]) {
   
     struct GML_pair* list;
     struct GML_stat* stat=(struct GML_stat*)malloc(sizeof(struct GML_stat));
