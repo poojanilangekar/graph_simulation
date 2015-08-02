@@ -4,6 +4,8 @@
 #include <streambuf>
 #include <thread>
 #include <map>
+#include <list>
+#include <utility>
 
 #include <json.hpp>
 
@@ -13,6 +15,10 @@ using namespace nlohmann;
 json j_query,j_nodes;
 map < size_t, map < size_t, int> > distmat;
 map < size_t, map < size_t, int> > qfe;
+
+map <size_t, map < pair < size_t, size_t >, list <size_t> > > anc;
+map <size_t, map < pair < size_t, size_t >, list <size_t> > > desc; 
+
 void fill_distmat(string filename)
 {
 	ifstream f(filename);
@@ -28,6 +34,35 @@ void fill_distmat(string filename)
 
 }
 
+void add_to_anc(size_t candidate, size_t source, size_t target)
+{
+	int limit = qfe[source][target];
+	pair <size_t, size_t> edge (source, target);
+	for(map <size_t, int>::iterator it = distmat[candidate].begin(); it !=  distmat[candidate].end();++it)
+	{
+		if((it->first != candidate) && (it->second <= limit))
+		{		
+			anc[it->first][edge].push_back(candidate);	
+		}
+	}
+
+}
+
+
+void compute_anc()
+{
+
+	for(size_t i = 0; i < j_query["edge"].size();i++)
+	{
+		size_t snode = j_query["edge"][i]["source"], tnode = j_query["edge"][i]["target"];
+		for(size_t j = 0; j < j_nodes.size(); j++)
+		{
+			if((!j_nodes[j].is_null()) && (j_nodes[j]["source"] == j_query["node"][snode]["source"]))
+				add_to_anc(j,snode,tnode);
+		}
+	}
+
+}
 
 void parse_query_graph()
 {
@@ -35,9 +70,9 @@ void parse_query_graph()
 	{
 		json qnode = j_query["edge"][i];
 		qfe[qnode["source"]][qnode["target"]] = qnode["fe"];
-	} 
-	//compute_anc();
-
+	}
+	compute_anc(); 
+	
 }
 
 int main(int argc, char* argv[])
@@ -56,7 +91,7 @@ int main(int argc, char* argv[])
 	j.close();
 	readdistmat.join();
 	parse_query_graph();
-
+	
 }
 
 
