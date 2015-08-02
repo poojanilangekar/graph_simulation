@@ -48,8 +48,28 @@ void add_to_anc(size_t candidate, size_t source, size_t target)
 
 }
 
+void add_to_desc(size_t candidate, size_t source, size_t target)
+{
+	int limit = qfe[source][target];
+	pair <size_t, size_t> edge (source,target);
+	for(map< size_t, map < size_t, int> >::iterator it = distmat.begin(); it != distmat.end(); ++it)
+	{	
+		if(candidate != it->first)
+		{
+			size_t current = it -> first;
+			map <size_t, int>::iterator cit = (it->second).find(candidate);
+			if(cit != (it->second).end())
+			{
+				if(cit->second <= limit)
+					desc[current][edge].push_back(candidate);	
+			}
+		}	
+ 
+	}
+}
 
-void compute_anc()
+
+void compute_anc_desc()
 {
 
 	for(size_t i = 0; i < j_query["edge"].size();i++)
@@ -59,6 +79,8 @@ void compute_anc()
 		{
 			if((!j_nodes[j].is_null()) && (j_nodes[j]["source"] == j_query["node"][snode]["source"]))
 				add_to_anc(j,snode,tnode);
+			if((!j_nodes[j].is_null()) && (j_nodes[j]["source"] == j_query["node"][tnode]["source"]))
+				add_to_desc(j,snode,tnode);
 		}
 	}
 
@@ -71,7 +93,7 @@ void parse_query_graph()
 		json qnode = j_query["edge"][i];
 		qfe[qnode["source"]][qnode["target"]] = qnode["fe"];
 	}
-	compute_anc(); 
+	compute_anc_desc(); 
 	
 }
 
@@ -91,7 +113,6 @@ int main(int argc, char* argv[])
 	j.close();
 	readdistmat.join();
 	parse_query_graph();
-	
 }
 
 
