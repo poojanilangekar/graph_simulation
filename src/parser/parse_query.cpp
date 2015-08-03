@@ -5,6 +5,7 @@
 #include <thread>
 #include <map>
 #include <list>
+#include <set>
 #include <utility>
 
 #include <json.hpp>
@@ -19,6 +20,36 @@ map < size_t, map < size_t, int> > qfe;
 map <size_t, map < pair < size_t, size_t >, list <size_t> > > anc;
 map <size_t, map < pair < size_t, size_t >, list <size_t> > > desc; 
 
+map <size_t, set < size_t > > mat;
+map <size_t, set < size_t > > premv;
+
+void match()
+{
+	for(int i = 0; i < j_query["node"].size(); i++)
+	{
+		string source = j_query["node"][i]["source"];
+		int od = j_query["node"][i]["out_degree"];
+		for(int j = 0; j < j_nodes.size(); j++)
+		{
+			if(j_nodes[j]["source"] == source)
+			{
+				if((od == 0))
+					mat[i].insert(j);
+				else
+				{
+					map< size_t, map < size_t, int> >::iterator it = distmat.find(j);
+					if(it != distmat.end())
+					{
+						mat[i].insert(j);
+					}
+				}
+			}
+		}
+	}
+}
+
+
+
 void fill_distmat(string filename)
 {
 	ifstream f(filename);
@@ -28,7 +59,8 @@ void fill_distmat(string filename)
 		size_t source,dest;
 		int dist;
                 stringstream(line)>>source>>dest>>dist;
-               	distmat[source][dest] = dist;
+		if(source != dest)
+               		distmat[source][dest] = dist;
         }
         f.close();
 
@@ -38,14 +70,16 @@ void add_to_anc(size_t candidate, size_t source, size_t target)
 {
 	int limit = qfe[source][target];
 	pair <size_t, size_t> edge (source, target);
-	for(map <size_t, int>::iterator it = distmat[candidate].begin(); it !=  distmat[candidate].end();++it)
+	if(distmat.find(candidate) != distmat.end())
 	{
-		if((it->first != candidate) && (it->second <= limit))
-		{		
-			anc[it->first][edge].push_back(candidate);	
+		for(map <size_t, int>::iterator it = distmat[candidate].begin(); it !=  distmat[candidate].end();++it)
+		{
+			if((it->first != candidate) && (it->second <= limit))
+			{		
+				anc[it->first][edge].push_back(candidate);	
+			}
 		}
 	}
-
 }
 
 void add_to_desc(size_t candidate, size_t source, size_t target)
@@ -86,6 +120,18 @@ void compute_anc_desc()
 
 }
 
+void fill_out_degree()
+{
+	for( size_t i = 0; i < j_query["edge"].size(); i++)
+	{
+		size_t snode = j_query["edge"][i]["source"];
+		if(j_query["node"][snode]["out_degree"].is_null())
+			j_query["node"][snode]["out_degree"] = 1;
+		else
+			j_query["node"][snode]["out_degree"] = int(j_query["node"][snode]["out_degree"]) + 1; 
+	}
+}
+
 void parse_query_graph()
 {
 	for(size_t i=0; i<j_query["edge"].size();i++)
@@ -94,7 +140,8 @@ void parse_query_graph()
 		qfe[qnode["source"]][qnode["target"]] = qnode["fe"];
 	}
 	compute_anc_desc(); 
-	
+	fill_out_degree();
+	match();
 }
 
 int main(int argc, char* argv[])
