@@ -23,31 +23,69 @@ map <size_t, map < pair < size_t, size_t >, list <size_t> > > desc;
 map <size_t, set < size_t > > mat;
 map <size_t, set < size_t > > premv;
 
-void match()
+void fill_mat()
 {
 	for(int i = 0; i < j_query["node"].size(); i++)
-	{
-		string source = j_query["node"][i]["source"];
-		int od = j_query["node"][i]["out_degree"];
-		for(int j = 0; j < j_nodes.size(); j++)
+        {       string source = j_query["node"][i]["source"];
+                int od = j_query["node"][i]["out_degree"];
+                for(int j = 0; j < j_nodes.size(); j++)
+                {
+                        if(j_nodes[j]["source"] == source)
+                        {
+                                if((od == 0))
+                                        mat[i].insert(j);
+                                else
+                                {
+                                        map< size_t, map < size_t, int> >::iterator it = distmat.find(j);
+                                        if(it != distmat.end())
+                                        {
+                                                mat[i].insert(j);
+                                        }
+                                }
+                        }
+                }
+        }
+
+
+}
+
+void fill_premv()
+{
+	for( map < size_t, map < size_t, int > >::iterator it = distmat.begin(); it != distmat.end(); ++it)
+	{	
+		size_t gs = it->first;
+		for(size_t i = 0; i < j_query["edge"].size(); i++)
 		{
-			if(j_nodes[j]["source"] == source)
+			size_t qs = j_query["edge"][i]["source"], qd = j_query["edge"][i]["target"];
+			if( j_query["node"][qs]["source"] != j_nodes[gs]["source"] )
+				premv[qd].insert(gs);
+			else 
 			{
-				if((od == 0))
-					mat[i].insert(j);
-				else
-				{
-					map< size_t, map < size_t, int> >::iterator it = distmat.find(j);
-					if(it != distmat.end())
+				int matchd = 0, unmatchd = 0;
+				for(map < size_t, int >::iterator dit = (it->second).begin(); dit != (it->second).end(); ++dit)
+				{	
+					size_t gd = dit->first;
+					if(j_query["node"][qd]["source"] == j_nodes[gd]["source"])
 					{
-						mat[i].insert(j);
+						matchd++;
+						if(qfe[qs][qd] < dit->second)
+							unmatchd++;
 					}
+
 				}
+				if(matchd == unmatchd)
+					premv[qd].insert(gs);
 			}
 		}
 	}
 }
 
+void match()
+{
+
+	fill_mat();
+	fill_premv();
+}
 
 
 void fill_distmat(string filename)
@@ -160,6 +198,7 @@ int main(int argc, char* argv[])
 	j.close();
 	readdistmat.join();
 	parse_query_graph();
+	 
 }
 
 
