@@ -15,11 +15,12 @@
 using namespace std;
 
 map < int, vector<int> > adjlist; //Adjacency List to represent the graph.
-map < int, map <int, int> > distmat; //Distance Matrix containing the distance between all nodes. 
+ofstream dfile;
 mutex shared; //Mutex to ensure safe access to the distance matrix
 
 void sssp(int source) //Calculate the Shortest Path using BFS. 
 {
+	map <int, int> distmat;
 	queue < pair<int, int> > q; //A queue to contain the nodes to be explored. 
 	vector <int> visited; //A list of all visited nodes. 
 	pair <int, int> distpair; //pair consisting of a vertex and the distance from the source.
@@ -32,9 +33,7 @@ void sssp(int source) //Calculate the Shortest Path using BFS.
 		q.pop();
 		current = distpair.first;
 		distance = distpair.second;
-		shared.lock();
-		distmat[source][current] = distance; //Update the Distance Matrix.
-		shared.unlock();
+		distmat[current] = distance; //Update the Distance Matrix.
 		for(vector<int>::iterator it = adjlist[current].begin(); it != adjlist[current].end(); ++it)
 		{
 			if(find(visited.begin(), visited.end(),*it) == visited.end()) //For each neighbour, if the node is not visited, mark as visited and enqueue it with distance+1.
@@ -44,6 +43,10 @@ void sssp(int source) //Calculate the Shortest Path using BFS.
 			}	
 		}
 	}
+	shared.lock();
+		for(map<int,int>::iterator it = distmat.begin(); it != distmat.end(); ++it)	
+			dfile<<source<<" "<<it->first<<" "<<it->second<<"\n";
+	shared.unlock();
 
 }
 
@@ -78,6 +81,8 @@ int main(int argc, char* argv[])
 	}
 	data_file.close();
 	//Construct the distance Matrix by filling in the single source shortest path (sssp) for each source node.
+	string outputfile = filename + "_dmat.txt";
+	dfile.open(outputfile, ofstream::out);
 	int max_threads = thread::hardware_concurrency();
 	ThreadPool *pool = new ThreadPool(max_threads); //ThreadPool to enqueue the tasks to a set of 'max_threads'.
 	for(map<int, vector<int> >::const_iterator it = adjlist.begin(); it!= adjlist.end(); ++it)
@@ -87,17 +92,8 @@ int main(int argc, char* argv[])
 	}
 	//Join all threads. (Ensure all the tasks are complete.
 	delete pool;
+	dfile.close();
 	//Calculate the rutime of the program
-	string outputfile = filename + "_dmat.txt";
-	ofstream dmatfile(outputfile);
-	for(map<int, map<int, int>>::iterator sit = distmat.begin(); sit != distmat.end(); ++sit)
-	{
-		int snode = sit->first;
-		for(map<int, int>::iterator dit = sit->second.begin(); dit != sit->second.end();++dit)
-			dmatfile<<snode<<" "<<dit->first<<" "<<dit->second<<"\n";
-	}
-
-	dmatfile.close();
 	cout<<"Time: "<<difftime(time(0),start);
 	exit(0);
 }
