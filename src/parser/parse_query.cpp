@@ -24,16 +24,36 @@ map <size_t, map < pair < size_t, size_t >, list <size_t> > > desc;
 map <size_t, set < size_t > > mat;
 map <size_t, set < size_t > > premv;
 
+bool check_equal(json data, json query)
+{
+	for(json::iterator it = query.begin(); it != query.end(); ++it)
+	{
+		if((it.key() != "id") && (it.key() != "out_degree"))
+		{
+			if(data.find(it.key()) != data.end()) 
+			{
+				if(data[it.key()] != it.value())
+					return false;
+			}
+			else
+				return false;
+		}			
+	}
+	return true;
+}
+
+
 void fill_mat()
 {
 	for(int i = 0; i < j_query["node"].size(); i++)
-        {       string source = j_query["node"][i]["source"];
-                int od = j_query["node"][i]["out_degree"];
-                for(int j = 0; j < j_nodes.size(); j++)
+        {
+                string source = j_query["node"][i]["source"];
+		int od = j_query["node"][i]["out_degree"];
+		for(int j = 0; j < j_nodes.size(); j++)
                 {
-                        if(j_nodes[j]["source"] == source)
-                        {
-                                if((od == 0))
+			if(check_equal(j_nodes[j],j_query["node"][i]))
+                        {	
+				if((od == 0))
                                         mat[i].insert(j);
                                 else
                                 {
@@ -60,7 +80,7 @@ void fill_premv()
 		{
 			size_t qs = j_query["edge"][i]["source"], qd = j_query["edge"][i]["target"];
 			bool flag=false;
-			if( j_query["node"][qs]["source"] != j_nodes[gs]["source"] )
+			if( !check_equal(j_nodes[gs],j_query["node"][qs]))
 				flag = true;
 			else 
 			{
@@ -68,7 +88,7 @@ void fill_premv()
 				for(map < size_t, int >::iterator dit = (it->second).begin(); dit != (it->second).end(); ++dit)
 				{	
 					size_t gd = dit->first;
-					if(j_query["node"][qd]["source"] == j_nodes[gd]["source"])
+					if(check_equal(j_nodes[gd],j_query["node"][qd]))
 					{
 						matchd++;
 						if(qfe[qs][qd] < dit->second)
@@ -86,17 +106,39 @@ void fill_premv()
 			
 		}
 		set<size_t> result;
-		set_difference(unmatchp.begin(),unmatchp.end(),matchp.begin(),matchp.end(),inserter(result,result.end()));	
+		set_difference(unmatchp.begin(),unmatchp.end(),matchp.begin(),matchp.end(),inserter(result,result.end()));
 		for(set<size_t>::iterator ri = result.begin(); ri != result.end(); ++ri)
 			premv[*ri].insert(gs);
 	}	
 }
 
-void match()
+set < pair <size_t, size_t> >  match()
 {
-
+	set < pair <size_t, size_t> > mgraph;
 	fill_mat();
 	fill_premv();
+	//while( premv.size() != 0)
+	{
+		for(size_t i = 0; i < j_query["edge"].size(); i++)	
+		{	
+			size_t s = j_query["edge"][i]["source"], d = j_query["edge"][i]["target"];
+			set <size_t> intersect;
+			set_intersection(premv[d].begin(),premv[d].end(),mat[s].begin(),mat[s].end(),inserter(intersect,intersect.begin()));
+			cout<<mat[s].size()<<"\n";
+			for(set<size_t>::iterator it = intersect.begin(); it != intersect.end(); ++it)
+				mat[s].erase(*it);
+			cout<<mat[s].size()<<"\n";
+			if(mat[s].size() == 0)
+				return mgraph;
+			for(size_t j = 0; j < j_query["edge"].size(); j++)
+			{
+				if(j_query["edge"][i]["target"] == s)
+				{
+					
+				} 
+			}
+		}
+	}
 }
 
 
@@ -161,9 +203,9 @@ void compute_anc_desc()
 		size_t snode = j_query["edge"][i]["source"], tnode = j_query["edge"][i]["target"];
 		for(size_t j = 0; j < j_nodes.size(); j++)
 		{
-			if((!j_nodes[j].is_null()) && (j_nodes[j]["source"] == j_query["node"][snode]["source"]))
+			if((!j_nodes[j].is_null()) && check_equal(j_nodes[j],j_query["node"][snode]))
 				add_to_anc(j,snode,tnode);
-			if((!j_nodes[j].is_null()) && (j_nodes[j]["source"] == j_query["node"][tnode]["source"]))
+			if((!j_nodes[j].is_null()) && check_equal(j_nodes[j],j_query["node"][tnode]))
 				add_to_desc(j,snode,tnode);
 		}
 	}
@@ -211,6 +253,5 @@ int main(int argc, char* argv[])
 	readdistmat.join();
 	parse_query_graph();
 }
-
 
 
