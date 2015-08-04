@@ -124,10 +124,8 @@ set < pair <size_t, size_t> >  match()
 			size_t s = j_query["edge"][i]["source"], d = j_query["edge"][i]["target"];
 			set <size_t> intersect;
 			set_intersection(premv[d].begin(),premv[d].end(),mat[s].begin(),mat[s].end(),inserter(intersect,intersect.begin()));
-			cout<<mat[s].size()<<"\n";
 			for(set<size_t>::iterator it = intersect.begin(); it != intersect.end(); ++it)
 				mat[s].erase(*it);
-			cout<<mat[s].size()<<"\n";
 			if(mat[s].size() == 0)
 				return mgraph;
 			for(size_t j = 0; j < j_query["edge"].size(); j++)
