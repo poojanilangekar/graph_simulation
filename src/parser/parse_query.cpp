@@ -7,6 +7,7 @@
 #include <list>
 #include <set>
 #include <utility>
+#include <algorithm>
 
 #include <json.hpp>
 
@@ -54,11 +55,13 @@ void fill_premv()
 	for( map < size_t, map < size_t, int > >::iterator it = distmat.begin(); it != distmat.end(); ++it)
 	{	
 		size_t gs = it->first;
+		set<size_t> matchp, unmatchp;
 		for(size_t i = 0; i < j_query["edge"].size(); i++)
 		{
 			size_t qs = j_query["edge"][i]["source"], qd = j_query["edge"][i]["target"];
+			bool flag=false;
 			if( j_query["node"][qs]["source"] != j_nodes[gs]["source"] )
-				premv[qd].insert(gs);
+				flag = true;
 			else 
 			{
 				int matchd = 0, unmatchd = 0;
@@ -74,10 +77,19 @@ void fill_premv()
 
 				}
 				if(matchd == unmatchd)
-					premv[qd].insert(gs);
+					flag=true;
 			}
+			if(flag)
+				unmatchp.insert(qd);
+			else
+				matchp.insert(qd);
+			
 		}
-	}
+		set<size_t> result;
+		set_difference(unmatchp.begin(),unmatchp.end(),matchp.begin(),matchp.end(),inserter(result,result.end()));	
+		for(set<size_t>::iterator ri = result.begin(); ri != result.end(); ++ri)
+			premv[*ri].insert(gs);
+	}	
 }
 
 void match()
@@ -198,7 +210,6 @@ int main(int argc, char* argv[])
 	j.close();
 	readdistmat.join();
 	parse_query_graph();
-	 
 }
 
 
