@@ -18,8 +18,8 @@ json j_query,j_nodes;
 map < size_t, map < size_t, int> > distmat;
 map < size_t, map < size_t, int> > qfe;
 
-map <size_t, map < pair < size_t, size_t >, list <size_t> > > anc;
-map <size_t, map < pair < size_t, size_t >, list <size_t> > > desc; 
+map <size_t, map < pair < size_t, size_t >, set <size_t> > > anc;
+map <size_t, map < pair < size_t, size_t >, set <size_t> > > desc; 
 
 map <size_t, set < size_t > > mat;
 map <size_t, set < size_t > > premv;
@@ -112,37 +112,74 @@ void fill_premv()
 	}	
 }
 
-set < pair <size_t, size_t> >  match()
+map < size_t, set <size_t> >  match()
 {
-	set < pair <size_t, size_t> > mgraph;
+	map < size_t, set <size_t> > mgraph;
 	fill_mat();
 	fill_premv();
-	//while( premv.size() != 0)
+	while( premv.size() != 0)
 	{
-		for(size_t i = 0; i < j_query["edge"].size(); i++)	
-		{	
-			size_t s = j_query["edge"][i]["source"], d = j_query["edge"][i]["target"];
-			set <size_t> intersect;
-			set_intersection(premv[d].begin(),premv[d].end(),mat[s].begin(),mat[s].end(),inserter(intersect,intersect.begin()));
-			for(set<size_t>::iterator it = intersect.begin(); it != intersect.end(); ++it)
-				mat[s].erase(*it);
-			if(mat[s].size() == 0)
-				return mgraph;
-			for(size_t j = 0; j < j_query["edge"].size(); j++)
-			{
-				if(j_query["edge"][i]["target"] == s)
+		for(map< size_t, set < size_t > >::iterator pi = premv.begin(); pi != premv.end(); ++pi)
+		{	size_t d = pi->first;
+			for(size_t i = 0; i < j_query["edge"].size(); i++)	
+			{	
+				if( d != j_query["edge"][i]["target"])
+					continue;
+				size_t s = j_query["edge"][i]["source"];
+				set <size_t> intersect;
+				set_intersection(premv[d].begin(),premv[d].end(),mat[s].begin(),mat[s].end(),inserter(intersect,intersect.begin()));
+				for(set<size_t>::iterator it = intersect.begin(); it != intersect.end(); ++it)
+					mat[s].erase(*it);
 				{
-					
-				} 
-			}
-		}
+					if(mat[s].size() == 0)
+						return mgraph;
+					for(size_t j = 0; j < j_query["edge"].size(); j++)
+					{
+						if(j_query["edge"][i]["target"] == s)
+						{
+							pair<size_t,size_t> edge(j_query["edge"][i]["source"],j_query[i]["target"]);	
+							set<size_t> ancestors = anc[s][edge];
+							for(set<size_t>::iterator li = ancestors.begin(); li != ancestors.end(); ++li)
+							{	
+								if(premv.find(s) == premv.end())
+                                    continue;
+                                if(premv[s].find(*li) == premv[s].end())
+								{
+									set<size_t> descendants = desc[*li][edge];
+									set<size_t> mats = mat[s];
+									set<size_t> dmi;
+									set_intersection(descendants.begin(),descendants.end(),mats.begin(),mats.end(),inserter(dmi,dmi.begin()));
+									if(dmi.size()==0)
+									{
+										premv[s].insert(*li);
+									}
+								}	
+							}
+						} 
+					}
+				}
+			}	
+		    premv.erase(pi);
+        }	
 	}
+    for(map< size_t, set <size_t> >::iterator mi = mat.begin(); mi != mat.end(); ++mi)
+    {
+        size_t u = mi -> first;
+        set <size_t> x = mi -> second;
+        for(set<size_t>::iterator si = x.begin(); si != x.end(); ++si)
+            mgraph[u].insert(*si);
+    }
 }
 
 
 void fill_distmat(string filename)
 {
 	ifstream f(filename);
+	if(!f.is_open())
+	{	
+		cout<<"ERROR: Could not open "<<filename;
+		exit(1);
+	}
 	string line;
         while(getline(f, line))
         {
@@ -166,7 +203,7 @@ void add_to_anc(size_t candidate, size_t source, size_t target)
 		{
 			if((it->first != candidate) && (it->second <= limit))
 			{		
-				anc[it->first][edge].push_back(candidate);	
+				anc[it->first][edge].insert(candidate);	
 			}
 		}
 	}
@@ -185,7 +222,7 @@ void add_to_desc(size_t candidate, size_t source, size_t target)
 			if(cit != (it->second).end())
 			{
 				if(cit->second <= limit)
-					desc[current][edge].push_back(candidate);	
+					desc[current][edge].insert(candidate);	
 			}
 		}	
  
@@ -231,19 +268,48 @@ void parse_query_graph()
 	}
 	compute_anc_desc(); 
 	fill_out_degree();
-	match();
+	map < size_t, set <size_t> > s = match();
+    if(s.size() == 0)
+    {
+        cout<<"Pattern can not be matched.\n";
+        return;
+    }
+    for(map <size_t, set <size_t> >::iterator it = s.begin(); it != s.end(); ++it)
+    {
+        cout <<it->first<<"\t"<< (it->second).size()<<"\n";
+        set<size_t> us = it->second;
+        for(set <size_t>::iterator is = us.begin(); is != us.end(); ++is)
+            cout<<*is<<"\t";
+        cout<<"\n";
+    }
 }
 
 int main(int argc, char* argv[])
 {
+	
+	if(argc != 4)
+	{
+		cout<<"USAGE: "<<argv[0]<<" <query-graph> <data-node-file> <data-distance_matrix-file>\n";
+		exit(1);
+	}
 	string qfile = argv[1], nfile = argv[2], efile = argv[3];
 	thread readdistmat(fill_distmat,efile);
 	ifstream j(qfile);
+	if(!j.is_open())
+	{
+		cout<<"ERROR: Could not open "<<qfile;
+		exit(1);
+	}
 	stringstream jss;
 	jss << j.rdbuf();
 	j_query = json::parse(jss);
 	j.close();
 	j.open(nfile);
+	if(!j.is_open())
+	{
+		cout<<"ERROR: Could not open "<<nfile;
+		exit(1);
+	}
 	stringstream nss;
 	nss <<j.rdbuf();
 	j_nodes = json::parse(nss);
