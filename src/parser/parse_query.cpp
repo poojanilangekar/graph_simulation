@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cstdio>
 #include <string>
 #include <fstream>
 #include <streambuf>
@@ -282,7 +283,7 @@ void fill_out_degree()
 }
 
 
-void parse_graph(string filename)
+void parse_graph()
 {
 	for(size_t i=0; i<query["edge"].size();i++) //Fill fe(u,u') for every edge in the Query Graph.
 	{
@@ -293,21 +294,19 @@ void parse_graph(string filename)
 	compute_anc_desc(); 
 	fill_out_degree();
 	map < size_t, set <size_t> > s = match(); //Print the result graph if the query is present in the data graph. 
-    ofstream ofile(filename);
     if(s.size() == 0)
     {
-        ofile<<"Pattern can not be matched.\n";
+        cout<<"Pattern can not be matched.\n";
         return;
     }
     for(map <size_t, set <size_t> >::iterator it = s.begin(); it != s.end(); ++it)
     {
-        ofile <<it->first<<"\t"<< (it->second).size()<<"\n";
+        cout <<it->first<<"\t"<< (it->second).size()<<"\n";
         set<size_t> us = it->second;
         for(set <size_t>::iterator is = us.begin(); is != us.end(); ++is)
-            ofile<<*is<<"\t";
-        ofile<<"\n";
+            cout<<*is<<"\t";
+        cout<<"\n";
     }
-    ofile.close();
 }
 
 
@@ -344,7 +343,10 @@ int main(int argc, char* argv[])
 	f.close();
 	readdistmat.join(); //Wait for the distance matrix to be filled.
     string outputfile = nfile+"_"+currentDateTime()+".txt";
-	parse_graph(outputfile); //Parse the Date Graph with respect to the Query Graph.
+	freopen(outputfile.c_str(),"w",stdout);
+    parse_graph(); //Parse the Date Graph with respect to the Query Graph.
+    fclose(stdout);
+    freopen("/dev/tty", "w", stdout);
     cout<<"TIME: "<<difftime(time(0),start)<<"\n";
     exit(0);
 }
