@@ -254,7 +254,7 @@ void compute_anc_desc() //Computes the ancestors and descendants of each node in
 
 	for(size_t i = 0; i < query["edge"].size();i++) //Iterate through all the edges in the query graph.
 	{
-		size_t snode = query["edge"][i]["source"], tnode = query["edge"][i]["target"];
+        size_t snode = query["edge"][i]["source"], tnode = query["edge"][i]["target"];
 		for(size_t j = 0; j < nodes.size(); j++) //Iterate through all the nodes in the Data Graph.
 		{
 			if(!(nodes[j].is_null()))
@@ -272,13 +272,12 @@ void compute_anc_desc() //Computes the ancestors and descendants of each node in
 
 void fill_out_degree()
 {
+    for( size_t i = 0; i < query["node"].size(); i++)
+        query["node"][i]["out_degree"] = 0;
 	for( size_t i = 0; i < query["edge"].size(); i++) //For each edge in the Query Graph, increment the out_degree of the source vertex.
 	{
 		size_t snode = query["edge"][i]["source"];
-		if(query["node"][snode]["out_degree"].is_null())
-			query["node"][snode]["out_degree"] = 1;
-		else
-			query["node"][snode]["out_degree"] = int(query["node"][snode]["out_degree"]) + 1; 
+		query["node"][snode]["out_degree"] = int(query["node"][snode]["out_degree"]) + 1; 
 	}
 }
 
@@ -292,8 +291,8 @@ void parse_graph()
         
 	}
 	compute_anc_desc(); 
-	fill_out_degree();
-	map < size_t, set <size_t> > s = match(); //Print the result graph if the query is present in the data graph. 
+    fill_out_degree();
+    map < size_t, set <size_t> > s = match(); //Print the result graph if the query is present in the data graph. 
     if(s.size() == 0)
     {
         cout<<"Pattern can not be matched.\n";

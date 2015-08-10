@@ -107,6 +107,29 @@ int main(int argc, char * argv[])
     srand((unsigned)time(0));
     populate_nodes(n);
     populate_edges(n,e,k);
+    vector<string> labels;
+    cout<<"The labels are: \n";
+    for(json::iterator it = qgraph["node"][0].begin(); it != qgraph["node"][0].end(); ++it)
+    {
+        labels.push_back(it.key());
+        cout<<labels.size()<<"\t"<<labels.back()<<"\n";
+        
+    }
+    cout<<"Enter the label numbers you wish to delete followed by 0.\n";
+    vector<size_t> choice;
+    size_t c;
+    do
+    {
+        cin>>c;
+        choice.push_back(c);
+    }
+    while(choice.back() != 0);
+    choice.pop_back();
+    for(size_t i =0; i <qgraph["node"].size(); i++)
+    {
+        for(vector<size_t>::iterator it = choice.begin(); it != choice.end(); ++it)
+            qgraph["node"][i].erase(qgraph["node"][i].find(labels[*it - 1]));
+    }
     ofstream qfile(outputfile);
     qfile<<qgraph.dump(2);
     qfile.close();
