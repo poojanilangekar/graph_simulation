@@ -44,7 +44,7 @@ void parse_part(string partfile, bool indexzero)
 void compute_parts(string edgefile)
 {
     set <json> outnodes[4];
-    set <size_t> innodes[4];
+    set <json> innodes[4];
     for(map<size_t, int>::iterator it = nodeparts.begin(); it != nodeparts.end(); ++it )
     {
         nodes[it->first]["id"] = it->first;
@@ -67,10 +67,14 @@ void compute_parts(string edgefile)
         parts[nodeparts.find(source)->second]["edge"].push_back(current_edge);
         if(nodeparts.find(source)->second != nodeparts.find(target)->second)
         {
-            json target_node = nodes[target];
-            target_node["fragment"] = nodeparts.find(target)->second;
-            outnodes[nodeparts.find(source)->second].insert(target_node);
-            innodes[nodeparts.find(target)->second].insert(target);  
+            json outnode;
+            outnode["node"] = target;
+            outnode["fragment"] = nodeparts.find(target)->second;
+            outnodes[nodeparts.find(source)->second].insert(outnode);
+            json innode;
+            innode["node"] = target;
+            innode["fragment"] = nodeparts.find(source)->second;
+            innodes[nodeparts.find(target)->second].insert(innode);  
         }
         
     }

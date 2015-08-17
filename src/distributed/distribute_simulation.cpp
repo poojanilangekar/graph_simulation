@@ -7,6 +7,9 @@
 #include <cstdlib>
 #include <cstddef>
 #include <json.hpp>
+#include <map>
+#include <utility>
+#include <list>
 
 #define ROOT 4
 
@@ -27,6 +30,17 @@ json_info get_info(json f_obj)
     return result;
 }
 
+map < pair <int,int>, list <uint32_t> > dependency_graph(json f_obj, int current)
+{
+    map < pair <int,int>, list <uint32_t> > dgraph;
+    for(json::iterator it = f_obj["Fi.I"].begin(); it != f_obj["Fi.I"].end(); ++it)
+        dgraph[make_pair(current,(*it)["fragment"])].push_back((*it)["node"]);
+    for(json::iterator it = f_obj["Fi.O"].begin(); it != f_obj["Fi.O"].end(); ++it)
+        dgraph[make_pair((*it)["fragment"],current)].push_back((*it)["node"]);
+    return dgraph;
+
+}
+
 int main(int argc, char * argv[])
 {
     MPI_Init(NULL,NULL);
@@ -36,6 +50,7 @@ int main(int argc, char * argv[])
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     json fragment;
     json_info fragment_info;
+    map < pair <int,int>, list<uint32_t> > dgraph;
     //Create MPI_Datatype
     const int nitems = 4;
     int blocklengths[4] = {1,1,1,1};
@@ -63,6 +78,8 @@ int main(int argc, char * argv[])
     } 
     json_info fragments_info[4];
     MPI_Gather(&fragment_info,1,mpi_json_info,fragments_info,1,mpi_json_info,4,MPI_COMM_WORLD);
+    char *buf;
+    int filesize;
     if(world_rank == ROOT)
     {
         for(int i=0; i<ROOT; i++)
@@ -70,6 +87,34 @@ int main(int argc, char * argv[])
             cout<<i<<"\n";
             cout<<fragments_info[i].nodes<<"\t"<<fragments_info[i].edges<<"\t"<<fragments_info[i].out<<"\t"<<fragments_info[i].in<<"\n";
         }
+        ifstream qf(argv[world_size], ifstream::binary);
+        if (!qf.is_open())
+        {
+            cout<<"Could not open file "<<argv[world_size]<<"\n";
+            exit(2); 
+        }
+        qf.seekg(0,qf.end);
+        filesize = qf.tellg();
+        qf.seekg(0,qf.beg);
+        buf = (char *) malloc((filesize+1)*sizeof(char));
+        qf.read(buf,filesize);
+        buf[filesize] = '\0';
+    }
+    else
+    {
+        dgraph = dependency_graph(fragment,world_rank);
+    }
+    MPI_Bcast(&filesize,1,MPI_INT,ROOT, MPI_COMM_WORLD);
+    if(world_rank != ROOT)
+        buf = (char *) malloc((filesize+1)*sizeof(char));
+    MPI_Bcast(buf,filesize+1,MPI_CHAR,ROOT,MPI_COMM_WORLD);
+    json query = json::parse(buf);
+    free(buf);
+    if(world_rank == ROOT)
+        cout<<query["node"].size()<<"\t"<<query["edge"].size()<<"\n";
+    else
+    {
+            
     }
     MPI_Finalize();
 }
