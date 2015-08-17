@@ -41,6 +41,39 @@ map < pair <int,int>, list <uint32_t> > dependency_graph(json f_obj, int current
 
 }
 
+void fill_out_degree(json &query)
+{
+    for( size_t i = 0; i < query["node"].size(); i++)
+        query["node"][i]["out_degree"] = 0;
+    for( size_t i = 0; i < query["edge"].size(); i++) //For each edge in the Query Graph, increment the out_degree of the source vertex.
+    {
+        size_t snode = query["edge"][i]["source"];
+        query["node"][snode]["out_degree"] = int(query["node"][snode]["out_degree"]) + 1;
+    }
+    
+}
+
+map< uint32_t, json> get_nodes(json fragment)
+{
+    map <uint32_t, json> nodes;
+    for(json::iterator it = fragment["node"].begin(); it != fragment["node"].end(); ++it)
+    {
+        json node = *it;
+        uint32_t id = node["id"];
+        node.erase("id");
+        nodes[id] = node;
+    }
+    return nodes;
+}
+
+map < uint32_t, list <uint32_t> > get_edges(json fragment)
+{
+    map<uint32_t, list<uint32_t> > edges;
+    for(json::iterator it = fragment["edge"].begin(); it != fragment["edge"].end(); ++it)
+        edges[(*it)["source"]].push_back((*it)["target"]);
+    return edges;
+}
+
 int main(int argc, char * argv[])
 {
     MPI_Init(NULL,NULL);
@@ -77,6 +110,8 @@ int main(int argc, char * argv[])
         
     } 
     json_info fragments_info[4];
+    map <uint32_t, json> nodes;
+    map <uint32_t, list< uint32_t > >edges;
     MPI_Gather(&fragment_info,1,mpi_json_info,fragments_info,1,mpi_json_info,4,MPI_COMM_WORLD);
     char *buf;
     int filesize;
@@ -103,6 +138,9 @@ int main(int argc, char * argv[])
     else
     {
         dgraph = dependency_graph(fragment,world_rank);
+        nodes = get_nodes(fragment);
+        edges = get_edges(fragment);
+        fragment.clear();
     }
     MPI_Bcast(&filesize,1,MPI_INT,ROOT, MPI_COMM_WORLD);
     if(world_rank != ROOT)
@@ -110,11 +148,15 @@ int main(int argc, char * argv[])
     MPI_Bcast(buf,filesize+1,MPI_CHAR,ROOT,MPI_COMM_WORLD);
     json query = json::parse(buf);
     free(buf);
+    fill_out_degree(query);
+    
     if(world_rank == ROOT)
+    {
         cout<<query["node"].size()<<"\t"<<query["edge"].size()<<"\n";
+    }
     else
     {
-            
+                //iEval()
     }
     MPI_Finalize();
 }
