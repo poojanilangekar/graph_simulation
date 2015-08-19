@@ -18,19 +18,16 @@
 using namespace std;
 using namespace nlohmann;
 
-typedef struct {
-    uint32_t nodes,edges,out,in;
-}json_info;
-
-json_info get_info(json f_obj)
-{
-    json_info result;
-    result.nodes = f_obj["node"].size();
-    result.edges = f_obj["edge"].size();
-    result.out = f_obj["Fi.O"].size();
-    result.in = f_obj["Fi.I"].size();
-    return result;
-}
+typedef struct x_uv{
+    int u;
+    uint32_t v;
+    
+    x_uv(int i, uint32_t j)
+    {
+        u = i;
+        v = j;
+    }
+}x_uv;
 
 map < pair <int,int>, list <uint32_t> > dependency_graph(json f_obj, int current)
 {
@@ -188,24 +185,27 @@ int main(int argc, char * argv[])
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     int world_size;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    json fragment;
-    json_info fragment_info;
-    map < pair <int,int>, list<uint32_t> > dgraph;
-    //Create MPI_Datatype
-/*    const int nitems = 4;
-    int blocklengths[4] = {1,1,1,1};
-    MPI_Datatype types[4] = {MPI_UINT32_T,MPI_UINT32_T ,MPI_UINT32_T ,MPI_UINT32_T};
-    MPI_Datatype mpi_json_info;
+    
 
-    MPI_Aint offsets[4];
-    offsets[0] = offsetof(json_info,nodes);
-    offsets[1] = offsetof(json_info,edges);
-    offsets[2] = offsetof(json_info,out);
-    offsets[3] = offsetof(json_info,in);
-       
-    MPI_Type_create_struct(nitems, blocklengths, offsets,types, &mpi_json_info);
-    MPI_Type_commit(&mpi_json_info);*/
-    //Create MPI_Datatype
+    json fragment;
+    map < pair <int,int>, list<uint32_t> > dgraph;
+    map <uint32_t, json> nodes;
+    map <uint32_t, list< uint32_t > >edges;
+ 
+    char *buf;
+    int filesize;
+
+    const int nitems = 2;
+    int block_lengths[2] = {1,1};
+    MPI_Datatype types[2] = {MPI_INT, MPI_UINT32_T};
+    MPI_Datatype mpi_x_uv;
+    
+    MPI_Aint offsets[2];
+    offsets[0] = offsetof(x_uv,u);
+    offsets[1] = offsetof(x_uv,v);
+        
+    MPI_Type_create_struct(nitems,block_lengths,offsets,types,&mpi_x_uv);
+    MPI_Type_commit(&mpi_x_uv);
     if(world_rank != ROOT)
     {
         string filename = argv[world_rank+1];
@@ -213,22 +213,14 @@ int main(int argc, char * argv[])
         stringstream fss;
         fss << fragmentf.rdbuf();
         fragment = json::parse(fss);
-        fragment_info = get_info(fragment);
+        dgraph = dependency_graph(fragment,world_rank);
+        nodes = get_nodes(fragment);
+        edges = get_edges(fragment);
+        fragment.clear();
         
     } 
-    //json_info fragments_info[4];
-    map <uint32_t, json> nodes;
-    map <uint32_t, list< uint32_t > >edges;
-    //MPI_Gather(&fragment_info,1,mpi_json_info,fragments_info,1,mpi_json_info,4,MPI_COMM_WORLD);
-    char *buf;
-    int filesize;
-    if(world_rank == ROOT)
+    else
     {
-       /* for(int i=0; i<ROOT; i++)
-        {
-            cout<<i<<"\n";
-            cout<<fragments_info[i].nodes<<"\t"<<fragments_info[i].edges<<"\t"<<fragments_info[i].out<<"\t"<<fragments_info[i].in<<"\n";
-        }*/
         ifstream qf(argv[world_size], ifstream::binary);
         if (!qf.is_open())
         {
@@ -241,13 +233,6 @@ int main(int argc, char * argv[])
         buf = (char *) malloc((filesize+1)*sizeof(char));
         qf.read(buf,filesize);
         buf[filesize] = '\0';
-    }
-    else
-    {
-        dgraph = dependency_graph(fragment,world_rank);
-        nodes = get_nodes(fragment);
-        edges = get_edges(fragment);
-        fragment.clear();
     }
     MPI_Bcast(&filesize,1,MPI_INT,ROOT, MPI_COMM_WORLD);
     if(world_rank != ROOT)
@@ -276,6 +261,7 @@ int main(int argc, char * argv[])
        else
         {
             MPI_Gather(&unchanged,1,MPI_C_BOOL,changes,1,MPI_C_BOOL,4,MPI_COMM_WORLD);
+            unchanged = true;
             for(int i=0;i<4;i++)
                 unchanged = unchanged & changes[i];
             MPI_Bcast(&unchanged,1,MPI_C_BOOL,ROOT,MPI_COMM_WORLD);
