@@ -27,6 +27,16 @@ typedef struct x_uv{
         u = i;
         v = j;
     }
+
+    inline bool operator<(const x_uv  &o)  const 
+    {   
+        return u < o.u || (u == o.u && v < o.v);
+    }
+    
+    inline bool operator==(const x_uv &o) const
+    {
+        return (u == o.u) && (v == o.v);
+    }
 }x_uv;
 
 map < pair <int,int>, list <uint32_t> > dependency_graph(json f_obj, int current)
@@ -93,9 +103,9 @@ bool check_equal(json datanode, json querynode)
 
 
 
-set < pair <int,uint32_t> > iEval(json &query, map <uint32_t, json> &fnodes, map <uint32_t, list< uint32_t > >&fedges)
+set < x_uv > iEval(json &query, map <uint32_t, json> &fnodes, map <uint32_t, list< uint32_t > >&fedges)
 {
-    set <pair <int,uint32_t > > l; 
+    set < x_uv > l; 
     for(map<uint32_t, json>::iterator v = fnodes.begin(); v != fnodes.end(); ++v)
     {
         for(int u=0; u < query["node"].size(); u++)
@@ -111,7 +121,7 @@ set < pair <int,uint32_t> > iEval(json &query, map <uint32_t, json> &fnodes, map
                         if(it == fedges.end())
                         {
                             v->second["rvec"][u] = false;
-                            l.insert(make_pair(u,v->first));
+                            l.insert(x_uv(u,v->first));
                         }
                         else
                         {
@@ -134,7 +144,7 @@ set < pair <int,uint32_t> > iEval(json &query, map <uint32_t, json> &fnodes, map
                                     if(desc.empty())
                                     {   
                                         v->second["rvec"][u] = false;
-                                        l.insert(make_pair(u,v->first));
+                                        l.insert(x_uv(u,v->first));
                                         break;
                                     }
                                     else
@@ -147,7 +157,7 @@ set < pair <int,uint32_t> > iEval(json &query, map <uint32_t, json> &fnodes, map
             else
             {
                 v->second["rvec"][u] = false;
-                l.insert(make_pair(u,v->first));
+                l.insert(x_uv(u,v->first));
             }
         }
     }
@@ -155,28 +165,64 @@ set < pair <int,uint32_t> > iEval(json &query, map <uint32_t, json> &fnodes, map
 }
 
 
-map < int, set < pair <int,uint32_t> > > compute_li(int rank,set <pair <int, uint32_t> >l, map<uint32_t,json> nodes,map < pair <int,int>, list<uint32_t> > dgraph)
+map < int, set < x_uv > > compute_li(int rank,set < x_uv >l, map<uint32_t,json> nodes,map < pair <int,int>, list<uint32_t> > dgraph)
 {   
-    map < int, set < pair <int,uint32_t> > >li;
-    for(set<pair <int,uint32_t> >::iterator it = l.begin(); it != l.end(); ++it)
+    map < int, set < x_uv > >li;
+    for(set< x_uv >::iterator it = l.begin(); it != l.end(); ++it)
     {
         for(map < pair <int,int>, list<uint32_t> >::iterator ij = dgraph.begin(); ij != dgraph.end(); ++ij)
         {
             if((ij->first).first == rank)
             {
-                if(find((ij->second).begin(),(ij->second).end(),(*it).second) != (ij->second).end())
+                if(find((ij->second).begin(),(ij->second).end(),(*it).v) != (ij->second).end())
                     li[(ij->first).second].insert(*it);
             }
         }
-        if(nodes[(*it).second].find("anc") != nodes[(*it).second].end())
+        if(nodes[(*it).v].find("anc") != nodes[(*it).v].end())
         {
-            if(!(nodes[(*it).second]["anc"][(*it).first].is_null()))
+            if(!(nodes[(*it).v]["anc"][(*it).u].is_null()))
                 li[rank].insert(*it);
         }
     }
     return li;
 
 }
+
+set <x_uv> update_false(set <x_uv> l1, map<uint32_t,json> nodes)
+{
+    set <x_uv> l2;
+    for(set<x_uv>::iterator uv = l1.begin(); uv != l1.end(); ++uv)
+    {
+        int u = (*uv).u;
+        uint32_t v = (*uv).v;
+        for(map<uint32_t,json>::iterator z = nodes.begin(); z != nodes.end(); z++)
+        {
+            for(int i=0; i < (z->second)["rvec"].size(); i++)
+            {
+                
+                if((z->second)["rvec"][i].is_array())
+                {
+                    if((z->second)["rvec"][i][u].is_array())
+                    {
+                        list<uint32_t> zu((z->second)["rvec"][i][u].begin(), (z->second)["rvec"][i][u].end());
+                        zu.remove(v);
+                        if(zu.empty())
+                        {   
+                            (z->second)["rvec"][i] = false;
+                            l2.insert(x_uv(i,z->first));
+                        }
+                        else
+                            (z->second)["rvec"][i][u] = zu;  
+                    }
+                }
+            }
+        }
+    }
+    return l2;
+
+}
+
+
 
 int main(int argc, char * argv[])
 {
@@ -186,7 +232,6 @@ int main(int argc, char * argv[])
     int world_size;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     
-
     json fragment;
     map < pair <int,int>, list<uint32_t> > dgraph;
     map <uint32_t, json> nodes;
@@ -246,16 +291,41 @@ int main(int argc, char * argv[])
     //while(unchanged != true)
     {
         if(world_rank != ROOT)
-        {   set< pair<int, uint32_t> > l = iEval(query,nodes,edges);
+        {   set< x_uv > l = iEval(query,nodes,edges);
             ofstream output("partial_"+to_string(world_rank));
-            for(set<pair<int, uint32_t> >::iterator it = l.begin(); it != l.end(); ++it)
-                output<<(*it).first<<"\t"<<(*it).second<<"\n";
+            for(set< x_uv >::iterator it = l.begin(); it != l.end(); ++it)
+                output<<(*it).u<<"\t"<<(*it).v<<"\n";
             output.close();
-            map<int, set < pair < int, uint32_t > > > li = compute_li(world_rank,l,nodes,dgraph);
+            map<int, set < x_uv > > li = compute_li(world_rank,l,nodes,dgraph);
             unchanged = l.empty();
             MPI_Gather(&unchanged,1,MPI_C_BOOL,changes,1,MPI_C_BOOL,4,MPI_COMM_WORLD);
             MPI_Bcast(&unchanged,1,MPI_C_BOOL,ROOT,MPI_COMM_WORLD);
-            cout<<world_rank<<"\t"<<unchanged<<"\n";
+            li[world_rank] = update_false(li[world_rank],nodes);
+            //for(set< x_uv >::iterator it = li[world_rank].begin(); it != li[world_rank].end(); ++it)
+              //  cout<<(*it).u<<"\t"<<(*it).v<<"\n";
+            int send_size[ROOT], receive_size[ROOT];
+            MPI_Status status_send[ROOT],status_receive[ROOT];
+            MPI_Request request_send[ROOT], request_receive[ROOT];
+
+            for(int i=0; i<ROOT; i++)
+            {
+                    if(i != world_rank)
+                    {
+                        send_size[i] = li[i].size();
+                        MPI_Isend(send_size+i,1,MPI_INT,i,world_rank,MPI_COMM_WORLD,request_send+i);
+                        MPI_Irecv(receive_size+i,1,MPI_INT,i,i,MPI_COMM_WORLD,request_receive+i);
+                    }
+            }
+            for(int i=0; i<ROOT; i++)
+            {
+                if(i != world_rank)
+                {
+                        MPI_Wait(request_send+i,status_send+i);
+                        MPI_Wait(request_receive+i,status_receive+i);
+
+                }
+            }
+            
 
         }
        else
