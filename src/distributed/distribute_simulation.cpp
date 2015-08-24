@@ -12,6 +12,9 @@
 #include <list>
 #include <set>
 #include <algorithm>
+#include <thread>
+#include <mutex>
+#include <unistd.h>
 
 #define ROOT 4
 
@@ -27,7 +30,13 @@ typedef struct x_uv{
         u = i;
         v = j;
     }
-
+    x_uv()
+    {};
+    x_uv(const x_uv& o)
+    {
+        u = o.u;
+        v = o.v;
+    }
     inline bool operator<(const x_uv  &o)  const 
     {   
         return u < o.u || (u == o.u && v < o.v);
@@ -38,6 +47,17 @@ typedef struct x_uv{
         return (u == o.u) && (v == o.v);
     }
 }x_uv;
+
+bool unchanged = false;
+mutex unchanged_mutex;
+bool ifunchanged()
+{
+    unchanged_mutex.lock();
+    bool val = unchanged;
+    unchanged_mutex.unlock();
+    return val;
+    
+}
 
 map < pair <int,int>, list <uint32_t> > dependency_graph(json f_obj, int current)
 {
@@ -164,6 +184,35 @@ set < x_uv > iEval(json &query, map <uint32_t, json> &fnodes, map <uint32_t, lis
     return l;
 }
 
+void recv_uv(int world_rank,MPI_Datatype mpi_x_uv)
+{
+
+    try
+    {
+    while(true)
+    {
+        MPI_Status status;
+        MPI_Probe(MPI_ANY_SOURCE, world_rank,MPI_COMM_WORLD,&status);
+        int count;
+        MPI_Get_count(&status,mpi_x_uv,&count);
+        if(status.MPI_SOURCE < ROOT)
+            {     
+                
+                //cout<<world_rank<<"\t"<<status.MPI_SOURCE<<"\t"<<count<<"\n";
+                x_uv *l1 = new x_uv[count];
+                MPI_Recv(l1,count,mpi_x_uv,status.MPI_SOURCE,world_rank,MPI_COMM_WORLD,&status);
+                delete[] l1;
+            }
+        
+    }
+    }
+    catch (exception& e)
+    {
+        cout << "Standard exception: " << e.what() << endl;
+        terminate();
+    }
+}
+
 
 map < int, set < x_uv > > compute_li(int rank,set < x_uv >l, map<uint32_t,json> nodes,map < pair <int,int>, list<uint32_t> > dgraph)
 {   
@@ -226,7 +275,16 @@ set <x_uv> update_false(set <x_uv> l1, map<uint32_t,json> nodes)
 
 int main(int argc, char * argv[])
 {
-    MPI_Init(NULL,NULL);
+    int provided;
+    MPI_Init_thread(NULL, NULL, MPI_THREAD_MULTIPLE, &provided);
+    thread *recv_th;
+    if(provided < MPI_THREAD_MULTIPLE)
+    {
+            cout<<"Error: The MPI library does not have full thread support\n";
+            MPI_Abort(MPI_COMM_WORLD,1);
+            exit(1);
+    }
+
     int world_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     int world_size;
@@ -286,42 +344,49 @@ int main(int argc, char * argv[])
     json query = json::parse(buf);
     free(buf);
     fill_out_degree(query);
-    bool unchanged = false;
     bool changes[5];
     //while(unchanged != true)
     {
         if(world_rank != ROOT)
-        {   set< x_uv > l = iEval(query,nodes,edges);
-            ofstream output("partial_"+to_string(world_rank));
-            for(set< x_uv >::iterator it = l.begin(); it != l.end(); ++it)
-                output<<(*it).u<<"\t"<<(*it).v<<"\n";
-            output.close();
+        {   
+            set< x_uv > l = iEval(query,nodes,edges);
             map<int, set < x_uv > > li = compute_li(world_rank,l,nodes,dgraph);
             unchanged = l.empty();
-            MPI_Gather(&unchanged,1,MPI_C_BOOL,changes,1,MPI_C_BOOL,4,MPI_COMM_WORLD);
-            MPI_Bcast(&unchanged,1,MPI_C_BOOL,ROOT,MPI_COMM_WORLD);
             li[world_rank] = update_false(li[world_rank],nodes);
-            //for(set< x_uv >::iterator it = li[world_rank].begin(); it != li[world_rank].end(); ++it)
-              //  cout<<(*it).u<<"\t"<<(*it).v<<"\n";
-            int send_size[ROOT], receive_size[ROOT];
-            MPI_Status status_send[ROOT],status_receive[ROOT];
-            MPI_Request request_send[ROOT], request_receive[ROOT];
+            x_uv *send_uv[ROOT];
+            int send_size[ROOT];
+            MPI_Status status_send[ROOT];
+            MPI_Request request_send[ROOT];
 
             for(int i=0; i<ROOT; i++)
             {
                     if(i != world_rank)
                     {
                         send_size[i] = li[i].size();
-                        MPI_Isend(send_size+i,1,MPI_INT,i,world_rank,MPI_COMM_WORLD,request_send+i);
-                        MPI_Irecv(receive_size+i,1,MPI_INT,i,i,MPI_COMM_WORLD,request_receive+i);
+                        send_uv[i] = new x_uv[send_size[i]];
+                        copy(li[i].begin(),li[i].end(),send_uv[i]);
+                        //cout<<world_rank<<"\t"<<i<<"\t"<<send_size[i]<<"bye\n";
+                        MPI_Send(send_uv[i],send_size[i],mpi_x_uv,i,i,MPI_COMM_WORLD);
                     }
             }
+            recv_th = new thread(recv_uv,world_rank,mpi_x_uv);
+            sleep(10);
+            try
+            {  
+                recv_th->detach();
+                delete recv_th;
+            }
+             catch (exception& e)
+            {
+                cout << "Standard exception: " << e.what();
+            }
+
             for(int i=0; i<ROOT; i++)
             {
                 if(i != world_rank)
                 {
-                        MPI_Wait(request_send+i,status_send+i);
-                        MPI_Wait(request_receive+i,status_receive+i);
+                        //MPI_Wait(request_send+i,status_send+i);
+                        delete[] send_uv[i];
 
                 }
             }
@@ -330,11 +395,9 @@ int main(int argc, char * argv[])
         }
        else
         {
-            MPI_Gather(&unchanged,1,MPI_C_BOOL,changes,1,MPI_C_BOOL,4,MPI_COMM_WORLD);
             unchanged = true;
             for(int i=0;i<4;i++)
                 unchanged = unchanged & changes[i];
-            MPI_Bcast(&unchanged,1,MPI_C_BOOL,ROOT,MPI_COMM_WORLD);
         }
     }
     MPI_Finalize();
