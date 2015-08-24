@@ -121,7 +121,24 @@ bool check_equal(json datanode, json querynode)
     return true;
 }
 
-
+set <x_uv> partial_result(map<uint32_t, json> fnodes,json query)
+{
+    set <x_uv> l;
+    for(map<uint32_t,json>::iterator v = fnodes.begin(); v != fnodes.end(); ++v)
+    {
+        for(int u=0; u < query["node"].size(); u++)
+        {
+            if(v->second["rvec"][u].is_boolean())
+            {
+                bool uv = v->second["rvec"][u];
+                if(uv == false)
+                    continue;
+            }
+            l.insert(x_uv(u,v->first));
+        }
+    }
+    return l;
+}
 
 set < x_uv > iEval(json &query, map <uint32_t, json> &fnodes, map <uint32_t, list< uint32_t > >&fedges)
 {
@@ -208,7 +225,6 @@ void recv_uv(int world_rank,MPI_Datatype mpi_x_uv)
     }
     catch (exception& e)
     {
-        cout << "Standard exception: " << e.what() << endl;
         terminate();
     }
 }
@@ -345,8 +361,6 @@ int main(int argc, char * argv[])
     free(buf);
     fill_out_degree(query);
     bool changes[5];
-    //while(unchanged != true)
-    {
         if(world_rank != ROOT)
         {   
             set< x_uv > l = iEval(query,nodes,edges);
@@ -367,6 +381,7 @@ int main(int argc, char * argv[])
                         copy(li[i].begin(),li[i].end(),send_uv[i]);
                         //cout<<world_rank<<"\t"<<i<<"\t"<<send_size[i]<<"bye\n";
                         MPI_Send(send_uv[i],send_size[i],mpi_x_uv,i,i,MPI_COMM_WORLD);
+                        delete[] send_uv[i];
                     }
             }
             recv_th = new thread(recv_uv,world_rank,mpi_x_uv);
@@ -380,8 +395,9 @@ int main(int argc, char * argv[])
             {
                 cout << "Standard exception: " << e.what();
             }
-
-            for(int i=0; i<ROOT; i++)
+            l.clear();
+            //l = partial_result(nodes, query);
+            /*for(int i=0; i<ROOT; i++)
             {
                 if(i != world_rank)
                 {
@@ -389,7 +405,7 @@ int main(int argc, char * argv[])
                         delete[] send_uv[i];
 
                 }
-            }
+            }*/
             
 
         }
@@ -399,6 +415,19 @@ int main(int argc, char * argv[])
             for(int i=0;i<4;i++)
                 unchanged = unchanged & changes[i];
         }
-    }
-    MPI_Finalize();
+        MPI_Finalize();
+
+        if(world_rank != ROOT)
+        {
+            try
+            {
+                recv_th->detach();
+                delete recv_th;
+            }
+             catch (exception& e)
+            {
+                cout << "Standard exception: " << e.what();
+            }
+
+        }
 }
