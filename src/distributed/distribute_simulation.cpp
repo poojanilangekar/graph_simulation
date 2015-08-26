@@ -54,18 +54,23 @@ typedef struct x_uv{
 mutex Lout_mutex, Lin_mutex;
 set <x_uv> Lout, Lin;
 
-/*bool unchanged = false;
-mutex unchanged_mutex;
 
-
-bool ifunchanged()
+bool changed()
 {
-    unchanged_mutex.lock();
-    bool val = unchanged;
-    unchanged_mutex.unlock();
+    Lout_mutex.lock();
+    bool val = !(Lout.empty());
+    Lout_mutex.unlock();
+    return val;
+}
+
+bool received()
+{
+    Lin_mutex.lock();
+    bool val = !(Lin.empty());
+    Lin_mutex.unlock();
     return val;
     
-}*/
+}
 
 
 //Returns annotated dependency graph for a site.
@@ -175,11 +180,28 @@ void union_results(json query, MPI_Datatype mpi_x_uv)
             MPI_Recv(l,count,mpi_x_uv,status.MPI_SOURCE,ROOT+1,MPI_COMM_WORLD,&status);
             result.insert(l,l+count);
             delete[] l;
-        }      
+        }
+        else
+            i--;      
     }
     ofstream output("result.txt");
-    for(set<x_uv>::iterator it = result.begin(); it != result.end(); ++it)
-        output<<(*it).u<<"\t"<<(*it).v<<"\n";
+    map <int, set <uint32_t>> resultmap;
+    for(set<x_uv>::iterator it = result.begin();  it != result.end(); ++it)
+    {
+        resultmap[(*it).u].insert((*it).v);
+    }
+    if(resultmap.size() != query["node"].size())
+        output<<"No Match";
+    else
+    {
+        for(map<int, set <uint32_t>>::iterator it = resultmap.begin(); it != resultmap.end(); ++it)
+        {
+            output<<it->first<<"\n";
+            for(set<uint32_t>::iterator v = (it->second).begin(); v != (it->second).end(); ++v)
+                output<<*v<<"\t";
+            output<<"\n";
+        }
+    }
     output.close();
 }
 
@@ -408,6 +430,12 @@ int main(int argc, char * argv[])
     int world_size;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     
+    double startTime, endTime;
+
+
+    if(world_rank == ROOT)
+        startTime = MPI_Wtime();
+
     //Data Structures for each fragment
     json fragment;
     map < pair <int,int>, list<uint32_t> > dgraph;
@@ -475,35 +503,86 @@ int main(int argc, char * argv[])
     free(buf);
     fill_out_degree(query);
 
-
+    bool change = true;
     if(world_rank != ROOT)
     {   
-        iEval(query,nodes,edges);
-        recv_th = new thread(recv_l_uv,world_rank,mpi_x_uv);
-        send_l_uv(world_rank,nodes,dgraph,mpi_x_uv);
-        sleep(10);
-        update_false(nodes);
+        iEval(query,nodes,edges); //Compute the initial paritial evaluation.
+        recv_th = new thread(recv_l_uv,world_rank,mpi_x_uv); //Initialize the thread to receive the updates.
+        while(change)
+        {
+            if(changed()) //If there are updates, send change = true to the master and send the changes to other sites
+            {    
+                MPI_Send(&change,1,MPI_C_BOOL,ROOT,ROOT,MPI_COMM_WORLD);
+                send_l_uv(world_rank,nodes,dgraph,mpi_x_uv);
+            }
+            else
+            {
+                
+                if(received()) //If something has been received, process it and continue.
+                {
+                    while(received())
+                        update_false(nodes);
+                    continue;
+                }
+                else //If there are no changes to be sent and no changes received, send false to the coordinator and receive the response.
+                {
+                    MPI_Status status;
+                    change = false;
+                    MPI_Send(&change,1,MPI_C_BOOL,ROOT,ROOT,MPI_COMM_WORLD);
+                    MPI_Recv(&change,1,MPI_C_BOOL,ROOT,ROOT,MPI_COMM_WORLD,&status);
+                }
+            
+            }
+        }
+        //Computation is complete, ship the partial result.
         ship_partial_result(nodes,query, mpi_x_uv);
         
     }
     else
     {
+        set <int> no_change; //A set containing the sites with no changes.
+        while(no_change.size() != ROOT) //while there are sites with current changes.
+        {
+            MPI_Status status;
+            MPI_Probe(MPI_ANY_SOURCE,ROOT,MPI_COMM_WORLD,&status);
+            if(status.MPI_SOURCE < ROOT)
+            {
+                //Receive the change value from a site and add it to the set. 
+                MPI_Recv(&change,1,MPI_C_BOOL,status.MPI_SOURCE,ROOT,MPI_COMM_WORLD,&status);
+                if(change == false)
+                {
+                    no_change.insert(status.MPI_SOURCE);
+                }
+                else //if change is true, send 'true' to all the sites who have sent false previously
+                {
+                    for(set <int>::iterator it = no_change.begin(); it != no_change.end(); ++it)
+                        MPI_Send(&change,1,MPI_C_BOOL,*it,ROOT,MPI_COMM_WORLD);
+                    no_change.clear();
+                }
+            }
+        }
+        change = false;
+        for(int i = 0; i <ROOT; i++) //Send change = 'false' to all sites
+            MPI_Send(&change,1,MPI_C_BOOL,i,ROOT,MPI_COMM_WORLD);
+        //Compute the union of the data.
         union_results(query,mpi_x_uv);
+        endTime = MPI_Wtime();
+        cout<<"TIME: "<<(endTime-startTime)<<"\n";
     }
     MPI_Finalize();
 
     if(world_rank != ROOT)
     {
-    try
-    {
-        recv_th->detach();
-        delete recv_th;
-    }
-     catch (exception& e)
-    {
-        cout << "Standard exception: " << e.what();
-        terminate();
-    }
+        try
+        {
+            recv_th->detach();
+            delete recv_th;
+        }
+         catch (exception& e)
+        {
+            cout << "Standard exception: " << e.what();
+            terminate();
+        }
 
     }
 }
