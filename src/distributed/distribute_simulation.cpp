@@ -543,7 +543,7 @@ int main(int argc, char * argv[])
         }
         //Computation is complete, ship the partial result.
         ship_partial_result(nodes,query, mpi_x_uv);
-        MPI_Send(&change,1,MPI_C_BOOL,world_rank,world_rank,MPI_COMM_WORLD);
+        MPI_Send(&change,1,MPI_C_BOOL,world_rank,world_rank,MPI_COMM_WORLD); //Message to terminate the receiving thread
         try
         {
             recv_th.join();
@@ -553,6 +553,7 @@ int main(int argc, char * argv[])
             cout << "Standard exception: " << e.what();
             terminate();
         }
+        
 
            
     }
@@ -584,6 +585,10 @@ int main(int argc, char * argv[])
             MPI_Send(&change,1,MPI_C_BOOL,i,ROOT,MPI_COMM_WORLD);
         //Compute the union of the data.
         union_results(query,mpi_x_uv);
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    if(world_rank == ROOT)
+    {
         endTime = MPI_Wtime();
         cout<<"TIME: "<<(endTime-startTime)<<"\n";
     }
