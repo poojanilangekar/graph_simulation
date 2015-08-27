@@ -294,14 +294,21 @@ void recv_l_uv(int world_rank,MPI_Datatype mpi_x_uv)
         {
             MPI_Status status;
             MPI_Probe(MPI_ANY_SOURCE, world_rank,MPI_COMM_WORLD,&status);
+            if(status.MPI_SOURCE == world_rank)
+            {
+                bool change;
+                MPI_Recv(&change,1,MPI_C_BOOL,world_rank,world_rank,MPI_COMM_WORLD,&status);
+                if(change == false)
+                    return;
+            }
             int count;
             MPI_Get_count(&status,mpi_x_uv,&count);
             if(status.MPI_SOURCE < ROOT)
             {     
-                
-                x_uv *l = new x_uv[count];
-                MPI_Recv(l,count,mpi_x_uv,status.MPI_SOURCE,world_rank,MPI_COMM_WORLD,&status);
                 Lin_mutex.lock();
+                    x_uv *l = new x_uv[count];
+                    int source = status.MPI_SOURCE;
+                    MPI_Recv(l,count,mpi_x_uv,source,world_rank,MPI_COMM_WORLD,&status);
                     Lin.insert(l,l+count);
                 Lin_mutex.unlock();
                 delete[] l;
@@ -416,7 +423,7 @@ int main(int argc, char * argv[])
 {
     int provided;
     MPI_Init_thread(NULL, NULL, MPI_THREAD_MULTIPLE, &provided); //Initialize MPI in multi threaded mode. Abort if the mode is not supported.
-    thread *recv_th;
+
     if(provided < MPI_THREAD_MULTIPLE)
     {
             cout<<"Error: The MPI library does not have full thread support\n";
@@ -507,7 +514,7 @@ int main(int argc, char * argv[])
     if(world_rank != ROOT)
     {   
         iEval(query,nodes,edges); //Compute the initial paritial evaluation.
-        recv_th = new thread(recv_l_uv,world_rank,mpi_x_uv); //Initialize the thread to receive the updates.
+        thread recv_th(recv_l_uv,world_rank,mpi_x_uv); //Initialize the thread to receive the updates.
         while(change)
         {
             if(changed()) //If there are updates, send change = true to the master and send the changes to other sites
@@ -536,7 +543,18 @@ int main(int argc, char * argv[])
         }
         //Computation is complete, ship the partial result.
         ship_partial_result(nodes,query, mpi_x_uv);
-        
+        MPI_Send(&change,1,MPI_C_BOOL,world_rank,world_rank,MPI_COMM_WORLD);
+        try
+        {
+            recv_th.join();
+        }
+         catch (exception& e)
+        {
+            cout << "Standard exception: " << e.what();
+            terminate();
+        }
+
+           
     }
     else
     {
@@ -571,18 +589,4 @@ int main(int argc, char * argv[])
     }
     MPI_Finalize();
 
-    if(world_rank != ROOT)
-    {
-        try
-        {
-            recv_th->detach();
-            delete recv_th;
-        }
-         catch (exception& e)
-        {
-            cout << "Standard exception: " << e.what();
-            terminate();
-        }
-
-    }
 }
