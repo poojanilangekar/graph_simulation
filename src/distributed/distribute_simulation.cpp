@@ -142,7 +142,7 @@ bool check_equal(json datanode, json querynode)
     return true;
 }
 
-//Contructs and ships the partial result from the current fragment to the node. 
+//Constructs and ships the partial result from the current fragment to the node. 
 void ship_partial_result(map<uint32_t, json> fnodes,json query, MPI_Datatype mpi_x_uv)
 {
     list <x_uv> p_result;
@@ -165,6 +165,7 @@ void ship_partial_result(map<uint32_t, json> fnodes,json query, MPI_Datatype mpi
     delete [] p_array;
 }
 
+//Receives the partial results from all the sites and computes the union.
 void union_results(json query, MPI_Datatype mpi_x_uv)
 {
     set <x_uv> result;
@@ -288,6 +289,7 @@ void iEval(json &query, map <uint32_t, json> &fnodes, map <uint32_t, list< uint3
 void recv_l_uv(int world_rank,MPI_Datatype mpi_x_uv)
 {
 
+    ofstream metrics("metrics_"+to_string(world_rank));
     try
     {
         while(true)
@@ -299,7 +301,10 @@ void recv_l_uv(int world_rank,MPI_Datatype mpi_x_uv)
                 bool change;
                 MPI_Recv(&change,1,MPI_C_BOOL,world_rank,world_rank,MPI_COMM_WORLD,&status);
                 if(change == false)
+                {
+                    metrics.close();
                     return;
+                }
             }
             int count;
             MPI_Get_count(&status,mpi_x_uv,&count);
@@ -311,6 +316,7 @@ void recv_l_uv(int world_rank,MPI_Datatype mpi_x_uv)
                     MPI_Recv(l,count,mpi_x_uv,source,world_rank,MPI_COMM_WORLD,&status);
                     Lin.insert(l,l+count);
                 Lin_mutex.unlock();
+                metrics << status.MPI_SOURCE<<"\t"<<count<<"\n";
                 delete[] l;
             }      
         }
@@ -356,7 +362,7 @@ void send_l_uv(int rank, map<uint32_t,json> nodes,map < pair <int,int>, list<uin
             {
                 send_size[i] = l_ij[i].size();
                 send_uv[i] = new x_uv[send_size[i]];
-                if(send_uv[i] != 0)
+                if(l_ij[i].size() != 0)
                 {
                     copy(l_ij[i].begin(),l_ij[i].end(),send_uv[i]);
                     MPI_Send(send_uv[i],send_size[i],mpi_x_uv,i,i,MPI_COMM_WORLD);
