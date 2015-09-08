@@ -124,23 +124,24 @@ map < uint32_t, list <uint32_t> > get_edges(json fragment)
 
 //Checks the equality of the datanode and the query node.
 //Returns true only if all the labels of the querynode match the labels of the datanode. 
-bool check_equal(json datanode, json querynode) 
-{
-    for(json::iterator it = querynode.begin(); it != querynode.end(); ++it)
-    {
-        if((it.key() != "id") && (it.key() != "out_degree"))
-        {
-            if(datanode.find(it.key()) != datanode.end())
-            {
-                if(datanode[it.key()] != it.value())
+bool check_equal(nlohmann::json datanode, nlohmann::json querynode) {
+        for (nlohmann::json::iterator it = querynode.begin(); it != querynode.end(); ++it) {
+            if ((it.key() != "id") && (it.key() != "out_degree")) {
+                if (datanode.find(it.key()) != datanode.end()) {
+                    if(datanode[it.key()].is_string())
+                    {
+                        std::string d = datanode[it.key()], q= it.value();
+                        if(d.find(q)== std::string::npos)
+                            return false;
+                    }
+                    else if (datanode[it.key()] != it.value())
+                        return false;
+                } else
                     return false;
             }
-            else
-                return false;
         }
+        return true;
     }
-    return true;
-}
 
 //Constructs and ships the partial result from the current fragment to the node. 
 void ship_partial_result(map<uint32_t, json> fnodes,json query, MPI_Datatype mpi_x_uv)

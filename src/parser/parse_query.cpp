@@ -286,9 +286,7 @@ void parse_graph()
 {
 	for(size_t i=0; i<query["edge"].size();i++) //Fill fe(u,u') for every edge in the Query Graph.
 	{
-		json qnode = query["edge"][i];
-        qfe[qnode["source"]][qnode["target"]] = qnode["fe"];
-        
+        qfe[qnode["source"]][qnode["target"]] = 1; //Modify to fit graph simulation with limit 1.   
 	}
 	compute_anc_desc(); 
     fill_out_degree();
