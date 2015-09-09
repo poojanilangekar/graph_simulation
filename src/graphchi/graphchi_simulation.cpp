@@ -62,6 +62,7 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
     
     void update(graphchi_vertex<VertexDataType, EdgeDataType> &vertex, graphchi_context &gcontext) {
 
+
         //For iteration 0
         if (gcontext.iteration == 0) {
             
@@ -90,8 +91,8 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
              */
             for(unsigned int i=0; i < query_json["node"].size(); i++) {
                 if(check_equal(vertex_json[vertex.id()],query_json["node"][i])) {    
-                    int od = query_json["node"][i]["out_degree"];
-                    if(od == 0){
+                    unsigned int out_d = query_json["node"][i]["out_degree"];
+                    if(out_d == 0){
                         rvec[i] = true;
                         v_vector->add(i);
                     }
@@ -130,6 +131,7 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
              * Schedule all the inedges for the next iteration.
              * 
              */
+            
             if(vertex_false.size() != 0) {
                 for(int i = 0; i < vertex.num_inedges(); i++) {
                     chivector<vid_t> * e_vector = vertex.inedge(i)->get_vector();
@@ -140,7 +142,7 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
                     gcontext.scheduler->add_task(vertex.inedge(i)->vertex_id());
                 }
             }    
-            
+
         } 
         
         //For iteration 1..n
@@ -148,12 +150,12 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
             
             /*
              * Retrieve the rvec for the current node from the rvec_map. 
-             * Intialize a false_vector to maintain the updates.  
+             * Intialize vertex_false to maintain the vertices set to false.  
              */
             tbb::concurrent_hash_map<unsigned int, nlohmann::json>::accessor ac;
             rvec_map.find(ac,vertex.id());
             nlohmann::json rvec = ac->second;
-            std::vector<vid_t> false_vector;
+            std::vector<vid_t> vertex_false;
             
             chivector<vid_t> * v_vector = vertex.get_vector();
             
@@ -168,15 +170,18 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
              * Else update rvec[k][t].
              */
             for(int i = 0; i < vertex.num_outedges(); i++){
+
                 chivector<vid_t> * e_vector = vertex.outedge(i)->get_vector();
                 if(e_vector->size() != 0 ) {
                     for(unsigned int j =0; j < e_vector->size(); j++){
-                        unsigned int t = e_vector->get(j);
+                        vid_t t = e_vector->get(j);
                         for(unsigned int k = 0; k < rvec.size(); k++ ) {
+                            
                             if(rvec[k].is_boolean())
                                 continue;
                             if(rvec[k][t].is_null())
                                 continue;
+                            
                             std::vector <vid_t> desc(rvec[k][t].begin(),rvec[k][t].end());
                             
                             std::vector <vid_t>::iterator it = std::find(desc.begin(), desc.end(), vertex.outedge(i)->vertex_id());
@@ -185,15 +190,15 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
                                 desc.erase(it);
                                 if(desc.size() == 0){
                                     rvec[k] = false;
-                                    false_vector.push_back(k);
+                                    vertex_false.push_back(k);
                                 }
                                 else
                                     rvec[k][t] = desc;
                             }                                
                         }
                     }
-                    e_vector->clear();
                 }
+                e_vector->clear();
             }
             
             /*
@@ -204,7 +209,8 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
              */
            
             
-            if(false_vector.size() != 0){
+            
+            if(vertex_false.size() != 0){
             //Update the new match nodes for the vertex by adding only the current matches to the vertex vector.
                 v_vector->clear();
                 for(unsigned int i = 0; i < rvec.size(); i++){
@@ -214,16 +220,16 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
                         v_vector->add(i);
                 }
                 for(int i=0; i < vertex.num_inedges(); i++){
-                    chivector<vid_t> * e_vector = vertex.inedge(i) -> get_vector();
-                    for(unsigned int j = 0; j < false_vector.size(); j++)
-                        e_vector->add(false_vector[j]);
+                   chivector<vid_t> * e_vector = vertex.inedge(i) -> get_vector();
+                    for(unsigned int j = 0; j < vertex_false.size(); j++)
+                        e_vector->add(vertex_false[j]);
                     gcontext.scheduler->add_task(vertex.inedge(i)->vertex_id());
                 }
             }
-            
             ac -> second = rvec;
             ac.release();
         }
+
     }
     
     /**
@@ -237,13 +243,12 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
      */
     void after_iteration(int iteration, graphchi_context &gcontext) {
       /*
-       * If there were no changes in the current iteration, then iterate once more.
+       * If there were changes in the current iteration, then iterate once more.
        * If there were no changes, stop execution by setting current iteration to last iteration. 
        */
         if(gcontext.scheduler->num_tasks() > 0)
-        {
             gcontext.set_last_iteration(iteration+1);
-        }else
+        else
             gcontext.set_last_iteration(iteration);
        
     }
@@ -283,7 +288,6 @@ int main(int argc, const char ** argv) {
     
     
     std::string filename = get_option_string("file");  // Base filename
-    int niters           = get_option_int("niters", 4); // Number of iterations
     bool scheduler       = true; // Always enable scheduling.
     
     //Shard creation.
@@ -309,6 +313,7 @@ int main(int argc, const char ** argv) {
     query_json = nlohmann::json::parse(qss);
     fill_out_degree(query_json);
 
+    int niters = query_json["edge"].size(); //For inmemorymode, The number of iterations is determined by the number of edges. (Worst Case)
     
     //Initailize the graph simulation program. 
     GraphSimulation program;
@@ -351,4 +356,3 @@ int main(int argc, const char ** argv) {
     
     return 0;
 }
-
