@@ -1,7 +1,6 @@
-//Dynamic edge and vertex data.
+//Dynamic edge.
 
 #define DYNAMICEDATA 1
-#define DYNAMICVERTEXDATA 1
 
 #include <mpi.h>
 #include <assert.h>
@@ -15,6 +14,8 @@
 #include "tbb/concurrent_hash_map.h" 
 #include <fstream>
 #include <streambuf>
+#include <thread>
+#include <ctime>
 
 
 #include <json.hpp>
@@ -24,8 +25,8 @@
 
 using namespace graphchi;
 
-//Vertex Data and Edge data are of type chivector<vid_t>
-typedef chivector<vid_t> VertexDataType;
+//Vertex Data is of type bool and Edge data is of type chivector<vid_t>
+typedef bool VertexDataType;
 typedef chivector<vid_t> EdgeDataType;
 
 /* 
@@ -105,19 +106,12 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
         nlohmann::json rvec = ac->second;
         
         /*
-         * chivector v_vector to store the matches of the current vertex.
          * vertex_false to keep track of all the query vertices marked false for the vertex in the current iteration
-         * vertex_outedges to keep track of the outedges of the current vertex
          */
-        chivector<vid_t> * v_vector = vertex.get_vector();
-        v_vector->clear();
 
-        std::vector<vid_t> vertex_outedges;
         std::vector<vid_t> vertex_false;
 
-        for (int i = 0; i < vertex.num_outedges(); i++) {
-            vertex_outedges.push_back(vertex.outedge(i)->vertex_id());
-        }
+        
 
         /*
          * If the vertex has a null rvec, it is being computed for the first time. 
@@ -128,7 +122,19 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
          */
         
         if(rvec.is_null()){
+           
             bool has_dependencies = false;
+            
+            /*
+             * vertex_outedges to keep track of the outedges of the current vertex.
+             */
+            std::vector<vid_t> vertex_outedges;
+            
+            for (int i = 0; i < vertex.num_outedges(); i++) {
+                vertex_outedges.push_back(vertex.outedge(i)->vertex_id());
+            }
+            
+            
             for(unsigned int i=0; i < query_json["node"].size(); i++) {
                 if(check_equal(vertex_json[vertex.id()],query_json["node"][i])) {    
                     unsigned int out_d = query_json["node"][i]["out_degree"];
@@ -163,47 +169,62 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
                 for(int i = 0; i <vertex.num_outedges();i++)
                     gcontext.scheduler->add_task(vertex.outedge(i)->vertex_id());
             }
+            
+            /*
+             * Vertex data is set to the value of has_dependencies.
+             * If the vertex data is set to true, then it is processed whenever it is scheduled in the subsequent iterations.
+             * If the vertex data is set to false, it is not processed in the subsequent iterations.  
+             */
+            vertex.set_data(has_dependencies);
         } 
-        for(int i = 0; i < vertex.num_outedges(); i++){
-            chivector<vid_t> * e_vector = vertex.outedge(i)->get_vector();
-            if(e_vector->size() != 0 ) {
-                for(unsigned int j =0; j < e_vector->size(); j++){
-                    vid_t t = e_vector->get(j);
-                    for(unsigned int k = 0; k < rvec.size(); k++ ) {
+            
+        
+        /*
+         * If the current vertex has to be processed, collect the edge data of all it's outgoing edges.
+         * For each outgoing edge which is updated to false, update the corresponding dependency.
+         * Else, clear all the outedges. 
+         */
+        if(vertex.get_data()) {
+            for(int i = 0; i < vertex.num_outedges(); i++){
+                chivector<vid_t> * e_vector = vertex.outedge(i)->get_vector();
+                if(e_vector->size() != 0 ) {
+                    for(unsigned int j =0; j < e_vector->size(); j++){
+                        vid_t t = e_vector->get(j);
+                        for(unsigned int k = 0; k < rvec.size(); k++ ) {
 
-                        if(rvec[k].is_boolean())
-                            continue;
-                        if(rvec[k][t].is_null())
-                            continue;
+                            if(rvec[k].is_boolean())
+                                continue;
+                            if(rvec[k][t].is_null())
+                                continue;
 
-                        std::vector <vid_t> desc(rvec[k][t].begin(),rvec[k][t].end());
+                            std::vector <vid_t> desc(rvec[k][t].begin(),rvec[k][t].end());
 
-                        std::vector <vid_t>::iterator it = std::find(desc.begin(), desc.end(), vertex.outedge(i)->vertex_id());
-                        if(it != desc.end())
-                        {
-                            desc.erase(it);
-                            if(desc.size() == 0){
-                                rvec[k] = false;
-                                vertex_false.push_back(k);
-                            }
-                            else
-                                rvec[k][t] = desc;
-                        }                                
+                            std::vector <vid_t>::iterator it = std::find(desc.begin(), desc.end(), vertex.outedge(i)->vertex_id());
+                            if(it != desc.end())
+                            {
+                                desc.erase(it);
+                                if(desc.size() == 0){
+                                    rvec[k] = false;
+                                    vertex_false.push_back(k);
+                                }
+                                else
+                                    rvec[k][t] = desc;
+                            }                                
+                        }
                     }
                 }
+                e_vector->clear();
             }
-            e_vector->clear();
+        } else {
+            for(int i = 0; i < vertex.num_outedges(); i++){
+                chivector<vid_t> * e_vector = vertex.outedge(i)->get_vector();
+                e_vector ->clear();
+            } 
         }
-
-
-        v_vector->clear();
-        for(unsigned int i = 0; i < rvec.size(); i++){
-            if(!rvec[i].is_boolean()) 
-                v_vector->add(i);
-            else if(rvec[i])
-                v_vector->add(i);
-        }    
-
+   
+        /*
+         * If a dependency has been set to false in the current iteration, propagate the changes through all the inedges.
+         */
         if(vertex_false.size() != 0){
             for(int i=0; i < vertex.num_inedges(); i++){
                 chivector<vid_t> * e_vector = vertex.inedge(i) -> get_vector();
@@ -212,6 +233,8 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
                  gcontext.scheduler->add_task(vertex.inedge(i)->vertex_id());
             }
         }
+        
+        // Update the result vector and release the accsessor. 
         ac->second = rvec;
         ac.release();
 
@@ -267,6 +290,15 @@ void fill_out_degree(nlohmann::json &query)
     
 }
 
+void fill_vertex(std::string vfilename)
+{
+    std::ifstream vf(vfilename);
+    std::stringstream vss;
+    vss << vf.rdbuf();
+    vertex_json = nlohmann::json::parse(vss);
+
+}
+
 int main(int argc, const char ** argv) {
     
     graphchi_init(argc, argv);
@@ -294,9 +326,9 @@ int main(int argc, const char ** argv) {
     MPI_Type_commit(&mpi_x_uv);
 
     
-    if(world_rank == 0)
+    if(world_rank == 0){
         start_time = MPI_Wtime();
-
+    }
     std::string queryfile = get_option_string("queryfile");
     std::ifstream qfile(queryfile);
     std::stringstream qss;
@@ -311,9 +343,11 @@ int main(int argc, const char ** argv) {
         FILE* f = freopen(std::string("LOG_"+std::to_string(world_rank)).c_str(),"w",stdout);
         dup2(fileno(stdout), fileno(stderr));
 
+        std::string vertexfile = get_option_string("vertexfile");
+        std::thread thread_fill_vertex(fill_vertex, vertexfile);
 
         metrics m("graph_simulation");
-
+        
 
         bool scheduler       = true; // Always enable scheduling.
 
@@ -326,22 +360,24 @@ int main(int argc, const char ** argv) {
          * The vertex file contains the label data of the input graph.
          * The queryfile contains the query pattern. It includes the label data and the structure of the query.
         **/
-        std::string vertexfile = get_option_string("vertexfile");
-
-        std::ifstream vfile(vertexfile);
-        std::stringstream vss;
-        vss << vfile.rdbuf();
-        vertex_json = nlohmann::json::parse(vss);
-
+        
+        
         fill_out_degree(query_json);
 
-        int niters = query_json["edge"].size(); //For inmemorymode, The number of iterations is determined by the number of edges. (Worst Case)
-
+        int niters = query_json["node"].size()*query_json["edge"].size(); //For inmemorymode, The number of iterations is determined by the number of edges. (Worst Case)
+        
         //Initailize the graph simulation program. 
         GraphSimulation program;
         graphchi_engine<VertexDataType, EdgeDataType> engine(filename, nshards, scheduler, m); 
         
+        int n_threads = std::thread::hardware_concurrency();
+        
+        engine.set_exec_threads(n_threads);
+        engine.set_load_threads(n_threads);
+        
         assert((world_rank-1) >= 0);
+ 
+        thread_fill_vertex.join();
         
         if(world_size > 2)
             engine.run(program,niters,world_rank-1);
@@ -387,7 +423,7 @@ int main(int argc, const char ** argv) {
             delete [] p_array;
         }
         metrics_report(m);
-        
+      
     }
    
     if(world_rank == 0){
