@@ -96,23 +96,13 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
            
             dependencies = 0; //Vertex is being computed for the first time and hence has zero dependencies. 
             
-            /*
-             * vertex_outedges to keep track of the outedges of the current vertex.
-             */
-            std::vector<vid_t> vertex_outedges;
-            
-            for (int i = 0; i < vertex.num_outedges(); i++) {
-                vertex_outedges.push_back(vertex.outedge(i)->vertex_id());
-            }
-            
-            
             for(unsigned int i=0; i < query_json["node"].size(); i++) {
                 if(check_equal(vertex_json[vertex.id()],query_json["node"][i])) {    
                     unsigned int out_d = query_json["node"][i]["out_degree"];
                     if(out_d == 0){
                         rvec[i] = true;
                     }
-                    else if(vertex_outedges.size() == 0)
+                    else if(vertex.num_outedges() == 0)
                     {
                         rvec[i] = false;
                         vertex_false.push_back(i);
@@ -121,7 +111,7 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
                     {   for(unsigned int j=0; j <query_json["edge"].size(); j++){
                             unsigned int source = query_json["edge"][j]["source"], target = query_json["edge"][j]["target"];
                             if(i == source )
-                                rvec[i][target] = vertex_outedges;
+                                rvec[i][target] = vertex.num_outedges();
                         }
                         dependencies++;
                     }
@@ -158,37 +148,44 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
          */
         
         if(dependencies != 0 ) {
+            
+            nlohmann::json updates;
+            
             for(int i = 0; i < vertex.num_outedges(); i++){
                 chivector<vid_t> * e_vector = vertex.outedge(i)->get_vector();
-                int outedge_id = vertex.outedge(i)->vertex_id(), e_vector_size = e_vector->size();
-                for( int j =0; j < e_vector_size; j++){
+                int evector_size = e_vector->size();
+                for( int j =0; j < evector_size; j++){
                     vid_t t = e_vector->get(j);
-                    for(unsigned int k = 0; k < rvec.size(); k++ ) {
-
-                        if(rvec[k].is_boolean())
-                            continue;
-
-                        std::vector <vid_t> desc(rvec[k][t].begin(),rvec[k][t].end());
-                        if(desc.size() == 0)
-                            continue;
-                        
-                        std::vector <vid_t>::iterator it = std::find(desc.begin(), desc.end(), outedge_id);
-                        if(it != desc.end())
-                        {
-                            desc.erase(it);
-                            if(desc.size() == 0){
-                                dependencies--;
-                                rvec[k] = false;
-                                vertex_false.push_back(k);
-                            }
-                            else
-                                rvec[k][t] = desc;
-                        }                                
+                    if(updates[t].is_null())
+                        updates[t] = 1;
+                    else {
+                        int n = updates[t];
+                        updates[t] = n +1;
                     }
                 }
                 e_vector->clear();
-                vertex.set_data(dependencies);
             }
+            
+            for(vid_t i = 0; i < updates.size(); i++ ) {
+                if(updates[i].is_null())
+                    continue;
+                int cur_updates = updates[i];
+                for(size_t j = 0; j < rvec.size(); j++){
+                    if(rvec[j].is_boolean())
+                        continue;
+                    if(rvec[j][i].is_number()){
+                        int prev_dep = rvec[j][i];
+                        if(prev_dep <= cur_updates) {
+                            rvec[j] = false;
+                            vertex_false.push_back(j);
+                            dependencies --;
+                        }
+                        else
+                            rvec[j][i] = prev_dep - cur_updates;
+                    }
+                }
+            }
+            vertex.set_data(dependencies);
         } else {
             for(int i = 0; i < vertex.num_outedges(); i++){
                 chivector<vid_t> * e_vector = vertex.outedge(i)->get_vector();
@@ -342,7 +339,7 @@ int main(int argc, const char ** argv) {
 
     engine.set_exec_threads(n_threads);
     engine.set_load_threads(n_threads);
-
+    engine.set_membudget_mb(get_option_int("memory",1024));
 
     thread_fill_vertex.join();
 
