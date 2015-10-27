@@ -93,9 +93,9 @@ int main(int argc, const char ** argv) {
         size_t vfilesize = vfile.tellg();
         vfile.close();
         
-        logstream(LOG_INFO)<<"Vertex file size: "<<vfilesize<<"Bytes\n";
+        logstream(LOG_INFO)<<"Vertex file size: "<<(float)(vfilesize/1000000.0)<<"MB\n";
 
-        nparts = std::ceil((float)((edges*qvertices*sizeof(int)*1.0)/((memory*alpha*1000000) - ((vfilesize*16) + (edges*qedges*sizeof(int)/qvertices) + ((vertices)*(sizeof(int)+((qvertices-1)*sizeof(char))))) )));
+        nparts = std::ceil((float)((edges*(32 + qvertices*sizeof(int)*1.0))/((memory*alpha*1000000) - (1152 + (vfilesize) + (vertices *( 124 + (24*qvertices)+ (4 *qedges)))) )));
     }
     /*
      * If the number of parts calculated is less than one, the memory available is insufficient.  
@@ -107,8 +107,7 @@ int main(int argc, const char ** argv) {
     }
 
     assert(nparts >= 1);
-
-    
+   
     std::string file_type = get_option_string("filetype",std::string());
     if(file_type.empty())
         logstream(LOG_WARNING)<<"The parameter \"filetype\" is not set. May cause worker process to exit if preprocessed shards are not present.\n";     
