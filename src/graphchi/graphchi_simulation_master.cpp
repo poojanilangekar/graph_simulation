@@ -88,11 +88,14 @@ int main(int argc, const char ** argv) {
         int qedges = query_json["edge"].size();
 
         std::string vertexfile = get_option_string("vertexfile");
-        std::ifstream vfile(vertexfile, std::ios::binary | std::ios::binary);
+        std::ifstream vfile(vertexfile, std::ios::binary);
+        vfile.seekg(0,vfile.end);
         size_t vfilesize = vfile.tellg();
         vfile.close();
+        
+        logstream(LOG_INFO)<<"Vertex file size: "<<vfilesize<<"Bytes\n";
 
-        nparts = std::ceil((float)((edges*qvertices*sizeof(int)*1.0)/((memory*alpha*1000000) - (vfilesize + (edges*qedges*sizeof(int)/qvertices) + ((vertices)*(sizeof(int)+((qvertices-1)*sizeof(char))))) )));
+        nparts = std::ceil((float)((edges*qvertices*sizeof(int)*1.0)/((memory*alpha*1000000) - ((vfilesize*16) + (edges*qedges*sizeof(int)/qvertices) + ((vertices)*(sizeof(int)+((qvertices-1)*sizeof(char))))) )));
     }
     /*
      * If the number of parts calculated is less than one, the memory available is insufficient.  
@@ -104,17 +107,29 @@ int main(int argc, const char ** argv) {
     }
 
     assert(nparts >= 1);
-    
 
-    MPI_Comm intercomm;
-
-    logstream(LOG_DEBUG)<<"Spawning "<<nparts<<" worker processes.\n";
     
     std::string file_type = get_option_string("filetype",std::string());
     if(file_type.empty())
-        logstream(LOG_WARNING)<<"The parameter \"filetype\" is not set. May cause worker process to exit if preprocessed shards are not present.\n"; 
+        logstream(LOG_WARNING)<<"The parameter \"filetype\" is not set. May cause worker process to exit if preprocessed shards are not present.\n";     
 
-    int err = MPI_Comm_spawn("./bin/example_apps/graphchi_simulation_worker",(char **) argv, nparts, MPI_INFO_NULL, 0, MPI_COMM_SELF,&intercomm,NULL);
+    MPI_Comm intercomm;
+
+    MPI_Info info;
+
+    int ierr = MPI_Info_create(&info);
+    if(ierr != MPI_SUCCESS)
+    {
+        logstream(LOG_ERROR)<<"Error creating MPI_Info object.\n Errorcode: "<<ierr<<"\n";
+        exit(1);
+    }
+    
+    std::string hostfile = get_option_string("hostfile");
+    MPI_Info_set(info,"hostfile",hostfile.c_str());
+    
+    logstream(LOG_DEBUG)<<"Spawning "<<nparts<<" worker processes.\n";
+
+    int err = MPI_Comm_spawn("./bin/example_apps/graphchi_simulation_worker",(char **) argv, nparts, info, 0, MPI_COMM_WORLD,&intercomm,NULL);
 
     if(err != MPI_SUCCESS)
     {

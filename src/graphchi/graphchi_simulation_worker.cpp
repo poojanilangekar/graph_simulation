@@ -278,13 +278,32 @@ void fill_vertex(std::string vfilename)
 int main(int argc, const char ** argv) {
     
     graphchi_init(argc, argv);
-    
-    MPI_Init(NULL,NULL);
+    int provided;    
+    MPI_Init_thread(NULL,NULL, MPI_THREAD_FUNNELED, &provided);
+    if(provided < MPI_THREAD_FUNNELED)
+    {
+        std::cout<<"Error: The MPI Library does not have support multithreaded processes.\n";
+        exit(1);
+    }
     
     int world_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
     int world_size;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    
+    char processor_name[MPI_MAX_PROCESSOR_NAME];
+    int pname_len;
+    
+    MPI_Get_processor_name(processor_name,&pname_len);
+    logstream(LOG_INFO) << "Launched worker with id "<<world_rank<<" at node "<<processor_name<<"\n";
+    
+    
+    /*
+     * Redirect stdout and stderr to the log file identified by the rank of the worker process. 
+     */
+    FILE* f = freopen(std::string("LOG_"+std::to_string(world_rank)).c_str(),"w",stdout);
+    assert(f != NULL);
+    dup2(fileno(stdout), fileno(stderr));
     
     MPI_Comm master;
     MPI_Comm_get_parent(&master); //Communicator of Master, to ship results back to the master.
@@ -297,12 +316,7 @@ int main(int argc, const char ** argv) {
     
     std::string filename = get_option_string("file");  // Base filename
         
-    /*
-     * Redirect stdout and stderr to the log file identified by the rank of the worker process. 
-     */
-    FILE* f = freopen(std::string("LOG_"+std::to_string(world_rank)).c_str(),"w",stdout);
-    assert(f != NULL);
-    dup2(fileno(stdout), fileno(stderr));
+
 
     std::string vertexfile = get_option_string("vertexfile"); //Vertex file
     std::thread thread_fill_vertex(fill_vertex, vertexfile); 
