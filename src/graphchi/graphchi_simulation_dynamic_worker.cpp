@@ -14,6 +14,7 @@
 #include <fstream>
 #include <streambuf>
 #include <thread>
+#include <utility>
 
 
 #include <json.hpp>
@@ -32,9 +33,9 @@ typedef chivector<vid_t> EdgeDataType;
  * query_json contains the labels and the structure of the query graph.
  * rvec_map is a mapping between each node and its corresponding result vectors. 
  */
-nlohmann::json vertex_json, query_json;
+nlohmann::json query_json;
 tbb::concurrent_hash_map<unsigned int, nlohmann::json> rvec_map;
-
+std::map<vid_t,int> vertex_map;
 
 struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
     
@@ -44,23 +45,25 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
  * The function iterates through all the labels of the query node and compares its value to that of the datanode.
  * It returns true only if all the labels match; returns false otherwises.
  */
-     bool check_equal(nlohmann::json datanode, nlohmann::json querynode) {
-        for (nlohmann::json::iterator it = querynode.begin(); it != querynode.end(); ++it) {
-            if ((it.key() != "id") && (it.key() != "out_degree")) {
-                if (datanode.find(it.key()) != datanode.end()) {
-                    if(datanode[it.key()].is_string())
-                    {
-                        std::string d = datanode[it.key()], q= it.value();
-                        if(d.find(q)== std::string::npos)
-                            return false;
-                    }
-                    else if (datanode[it.key()] != it.value())
-                        return false;
-                } else
-                    return false;
-            }
+     bool check_equal(int datanode, nlohmann::json querynode) {
+         int label = querynode["label"];
+         if(label == datanode)
+             return true;
+         return false;
+    }
+     
+     void load_label(std::string filename)
+    {
+        std::ifstream inf(filename);
+        assert(inf.is_open());
+        std::string line;
+        vid_t vertex_id;
+        int l;
+        while(std::getline(inf,line)) {
+            std::stringstream(line)>>vertex_id>>l;
+            vertex_map[vertex_id] = l;
         }
-        return true;
+        inf.close();
     }
     
     
@@ -97,7 +100,7 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
             dependencies = 0; //Vertex is being computed for the first time and hence has zero dependencies. 
             
             for(unsigned int i=0; i < query_json["node"].size(); i++) {
-                if(check_equal(vertex_json[vertex.id()],query_json["node"][i])) {    
+                if(check_equal(vertex_map[vertex.id()],query_json["node"][i])) {    
                     unsigned int out_d = query_json["node"][i]["out_degree"];
                     if(out_d == 0){
                         rvec[i] = true;
@@ -230,19 +233,21 @@ struct GraphSimulation : public GraphChiProgram<VertexDataType, EdgeDataType> {
             gcontext.set_last_iteration(iteration+1);
         else
             gcontext.set_last_iteration(iteration);
-       
     }
     
     /**
      * Called before an execution interval is started.
      */
-    void before_exec_interval(vid_t window_st, vid_t window_en, graphchi_context &gcontext) {        
+    void before_exec_interval(vid_t window_st, vid_t window_en, graphchi_context &gcontext) {
+        std::string filename = gcontext.filename+"_label_"+std::to_string(window_st)+"_"+std::to_string(window_en);
+        load_label(filename);
     }
     
     /**
      * Called after an execution interval has finished.
      */
-    void after_exec_interval(vid_t window_st, vid_t window_en, graphchi_context &gcontext) {        
+    void after_exec_interval(vid_t window_st, vid_t window_en, graphchi_context &gcontext) {
+        vertex_map.clear();
     }
     
 };
@@ -266,18 +271,42 @@ void fill_out_degree(nlohmann::json &query)
  * Function to parse the vertexfile.
  * The label data of the input graph is stored in a json object. 
  */
-void fill_vertex(std::string vfilename)
+void fill_label(std::string vfilename, std::string fileprefix,std::vector< std::pair <vid_t, vid_t> > intervals )
 {
     std::ifstream vf(vfilename);
-    std::stringstream vss;
-    vss << vf.rdbuf();
-    vertex_json = nlohmann::json::parse(vss);
-
+    assert(vf.is_open());
+    std::string line;
+    int in = 0, nintervals = intervals.size();
+    vid_t start_in = intervals[in].first, end_in = intervals[in].second;
+    std::ofstream inf(fileprefix+"_label_"+std::to_string(start_in)+"_"+std::to_string(end_in));
+    assert(inf.is_open());
+    while(std::getline(vf,line)) {
+        vid_t vertex_id;
+        int l;
+        std::stringstream(line)>>vertex_id>>l;
+        if(vertex_id > end_in) {
+            inf.close();
+            in++; 
+            if(in == nintervals)
+                break;
+            start_in = intervals[in].first;
+            end_in = intervals[in].second;
+            inf.open(fileprefix+ "_label_"+std::to_string(start_in)+"_"+std::to_string(end_in));
+            assert(inf.is_open());        
+        }
+        inf<<vertex_id<<" "<<l<<"\n";
+       
+    }
+    vf.close();
+    if(inf.is_open())
+        inf.close();
 }
+
 
 int main(int argc, const char ** argv) {
     
     graphchi_init(argc, argv);
+    
     int provided;    
     MPI_Init_thread(NULL,NULL, MPI_THREAD_FUNNELED, &provided);
     if(provided < MPI_THREAD_FUNNELED)
@@ -296,15 +325,14 @@ int main(int argc, const char ** argv) {
     
     MPI_Get_processor_name(processor_name,&pname_len);
     logstream(LOG_INFO) << "Launched worker with id "<<world_rank<<" at node "<<processor_name<<"\n";
-    
-    
+
     /*
      * Redirect stdout and stderr to the log file identified by the rank of the worker process. 
      */
     FILE* f = freopen(std::string("LOG_"+std::to_string(world_rank)).c_str(),"w",stdout);
     assert(f != NULL);
     dup2(fileno(stdout), fileno(stderr));
-    
+
     MPI_Comm master;
     MPI_Comm_get_parent(&master); //Communicator of Master, to ship results back to the master.
     
@@ -315,17 +343,14 @@ int main(int argc, const char ** argv) {
     query_json = nlohmann::json::parse(qss);
     
     std::string filename = get_option_string("file");  // Base filename
-        
 
-
-    std::string vertexfile = get_option_string("vertexfile"); //Vertex file
-    std::thread thread_fill_vertex(fill_vertex, vertexfile); 
+    std::string vertexfile = get_option_string("vertexfile"); //Vertex file 
 
     metrics m("graph_simulation");
 
 
     bool scheduler       = true; // Always enable scheduling.
-
+    
     //Shard creation.
     std::string file_type = get_option_string("filetype", std::string());
     int nshards          = convert_if_notexists<vid_t>(filename, std::to_string(world_size),file_type);
@@ -345,7 +370,11 @@ int main(int argc, const char ** argv) {
     //Initailize the graph simulation program. 
     GraphSimulation program;
     graphchi_engine<VertexDataType, EdgeDataType> engine(filename, nshards, scheduler, m); 
-
+    
+    
+    
+    std::vector< std::pair<vid_t,vid_t> > intervals = engine.get_intervals();
+    fill_label(vertexfile,filename, intervals);
     /*
      * Optimize the graphchi engine and run the graph_simulation program.
      */
@@ -356,12 +385,8 @@ int main(int argc, const char ** argv) {
     int memory = std::ceil((float)(get_option_int("memory",1024) * get_option_float("alpha",0.75)));
     engine.set_membudget_mb(memory);
 
-    thread_fill_vertex.join();
-
-    if(world_size > 1)
-        engine.run(program,niters,world_rank);
-    else
-        engine.run(program,niters); //If world_size is 1, the engine is run using the inmemorymode. Need not mention starting interval. 
+    assert(world_size > 1);
+    engine.run(program,niters,world_rank); 
 
 
     /* After completion of the graphchi program, ship the results to the master. 
@@ -402,3 +427,4 @@ int main(int argc, const char ** argv) {
     MPI_Finalize();
     return 0;
 }
+

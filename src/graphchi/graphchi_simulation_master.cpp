@@ -74,12 +74,17 @@ int main(int argc, const char ** argv) {
         logstream(LOG_FATAL)<<"alpha has to take any value in the range (0.0,1.0]\n";
         exit(1);
     }
-    assert((alpha > 0) && (alpha <= 1.0));
+    assert((alpha > 0) && (alpha <= 1.0)); 
+
+    std::string file_type = get_option_string("filetype", std::string());
+    if (file_type.empty())
+        logstream(LOG_WARNING) << "The parameter \"filetype\" is not set. May cause worker process to exit if preprocessed shards are not present.\n";  
     
     int vertices = get_option_int("vertices",0);
     int edges = get_option_int("edges",0);
     
     int nparts;
+    std::string worker;
     if((vertices == 0) || (edges == 0)){
         logstream(LOG_WARNING)<<"Number of edges/vertices not mentioned. Choosing default option of 1 worker.\n";
         nparts = 1;
@@ -93,9 +98,18 @@ int main(int argc, const char ** argv) {
         size_t vfilesize = vfile.tellg();
         vfile.close();
         
-        logstream(LOG_INFO)<<"Vertex file size: "<<(float)(vfilesize/1000000.0)<<"MB\n";
+        logstream(LOG_INFO)<<"Vertex file size: "<<vfilesize/100000<<"MB\n";
 
         nparts = std::ceil((float)((edges*(32 + qvertices*sizeof(int)*1.0))/((memory*alpha*1000000) - (1152 + (vfilesize) + (vertices *( 124 + (24*qvertices)+ (4 *qedges)))) )));
+        if(nparts < 1)
+        {
+            worker = "./bin/example_apps/twitter_simulation/graphchi_simulation_dynamic_worker";
+            nparts = std::ceil((float)(((edges*(32 + qvertices*4.0))+(vertices *( 120 + (24*qvertices)+ (4 *qedges)))+vfilesize)/((alpha*memory*1000000)-(1152+(vertices*4)))));
+            if(nparts == 1)
+                nparts = -1;
+        }
+        else
+            worker = "./bin/example_apps/twitter_simulation/graphchi_simulation_worker";
     }
     /*
      * If the number of parts calculated is less than one, the memory available is insufficient.  
@@ -106,11 +120,7 @@ int main(int argc, const char ** argv) {
         exit(1);
     }
 
-    assert(nparts >= 1);
-   
-    std::string file_type = get_option_string("filetype",std::string());
-    if(file_type.empty())
-        logstream(LOG_WARNING)<<"The parameter \"filetype\" is not set. May cause worker process to exit if preprocessed shards are not present.\n";     
+    assert(nparts >= 1);   
 
     MPI_Comm intercomm;
 
@@ -128,7 +138,7 @@ int main(int argc, const char ** argv) {
     
     logstream(LOG_DEBUG)<<"Spawning "<<nparts<<" worker processes.\n";
 
-    int err = MPI_Comm_spawn("./bin/example_apps/graphchi_simulation_worker",(char **) argv, nparts, info, 0, MPI_COMM_WORLD,&intercomm,NULL);
+    int err = MPI_Comm_spawn(worker.c_str(),(char **) argv, nparts, info, 0, MPI_COMM_WORLD,&intercomm,NULL);
 
     if(err != MPI_SUCCESS)
     {
